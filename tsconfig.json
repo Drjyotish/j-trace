@@ -36,6 +36,7 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
+    "utm-console",
     "node_modules"
   ]
 }
