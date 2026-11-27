@@ -17,7 +17,7 @@ const campaign: Campaign = {
 };
 const row = (over: Partial<LinkRow> = {}): LinkRow => ({
   id: "r1", campaign_id: "c1", post_date: "2026-11-05", type: "Story", platform: "Instagram", channel: "@kkc.learn",
-  tag: "kickoff", owner: null, paid: false, base_link_id: null, custom_url: null, short_url: null, short_target: null,
+  tag: "kickoff", owner: null, paid: false, workshop_id: null, src_code: null, base_link_id: null, custom_url: null, short_url: null, short_target: null,
   published_url: null, used_long: false, notes: null, removed_at: null, created_by: null, ...over,
 });
 

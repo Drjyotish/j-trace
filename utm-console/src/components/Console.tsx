@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BaseLink, Campaign, LinkRow, Option, OptionKind, Sale, SaleKind } from "@/lib/types";
+import type { Applicant, ApplicantForm, BaseLink, Campaign, LinkRow, Option, OptionKind, Sale, SaleKind, Workshop } from "@/lib/types";
 import { VERTICALS } from "@/lib/types";
 import { newId, type Store } from "@/lib/store";
-import { DEFAULT_BASE_LINKS, DEFAULT_OPTIONS } from "@/lib/seed";
-import { attribute, type Attribution } from "@/lib/attribution";
-import { displayUrl, hostOf, isShortOutdated, linkStatus, longLinkFor, resolveBase } from "@/lib/utm";
+import { DEFAULT_BASE_LINKS, DEFAULT_OPTIONS, DEFAULT_WORKSHOPS } from "@/lib/seed";
+import { attribute, attributeApplicants, withApplicantWorkshops, type ApplicantSource, type Attribution } from "@/lib/attribution";
+import { bootcampBaseWarning, displayUrl, hostOf, isShortOutdated, linkStatus, longLinkFor, resolveBase, srcFor, usesSrc, workshopOf } from "@/lib/utm";
 import { LINK_COLUMNS, toCsv } from "@/lib/csv";
 import { bitlyConfigured, repointLink, shortenLink, type TokenGetter } from "@/lib/bitlyClient";
 import { download, Empty } from "./ui";
@@ -19,10 +19,12 @@ import { BaseLinksDialog } from "./BaseLinksDialog";
 import { CampaignDialog } from "./CampaignDialog";
 import { ImportDialog, type ImportMode } from "./ImportDialog";
 import { QrDialog } from "./QrDialog";
+import { ApplicantsTab } from "./ApplicantsTab";
+import { WorkshopsDialog } from "./WorkshopsDialog";
 
 export interface User { email: string; name: string }
 
-type Tab = "links" | "calendar" | "sales" | "transactions";
+type Tab = "links" | "calendar" | "applicants" | "sales" | "transactions";
 
 export interface Ctx {
   store: Store;
@@ -30,8 +32,11 @@ export interface Ctx {
   baseLinks: BaseLink[];
   verticalBases: BaseLink[];
   options: Record<OptionKind, string[]>;
+  workshops: Workshop[];
   links: LinkRow[];
   sales: Sale[];
+  applicants: Applicant[];
+  applicantSources: Map<string, ApplicantSource>;
   attribution: Attribution;
   longOf: (r: LinkRow) => string | null;
   bitlyReady: boolean;
@@ -44,6 +49,8 @@ export interface Ctx {
   openRow: (row?: LinkRow, date?: string) => void;
   openQr: (row: LinkRow) => void;
   openBaseLinks: () => void;
+  openWorkshops: () => void;
+  saveApplicant: (a: Applicant) => Promise<void>;
   openImport: (mode: ImportMode) => void;
   toast: (msg: string, kind?: "ok" | "err") => void;
   showTransactionsFor: (linkId: string | null) => void;
@@ -61,6 +68,9 @@ export function Console({ store, user, onSignOut, getToken }: {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [baseLinks, setBaseLinks] = useState<BaseLink[]>([]);
   const [opts, setOpts] = useState<Option[]>([]);
+  const [workshops, setWorkshops] = useState<Workshop[]>([]);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [workshopDialog, setWorkshopDialog] = useState(false);
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [allLinks, setAllLinks] = useState<LinkRow[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -99,6 +109,9 @@ export function Console({ store, user, onSignOut, getToken }: {
             DEFAULT_OPTIONS[kind].forEach((label) => seed.push({ id: newId(), kind, label })));
           await store.saveOptions(seed);
         }
+        if (!s.workshops.length) {
+          for (const w of DEFAULT_WORKSHOPS) await store.saveWorkshop({ ...w, id: newId() });
+        }
       } catch {
         // a teammate seeded at the same moment — the unique constraints stopped the duplicate
       }
@@ -108,6 +121,7 @@ export function Console({ store, user, onSignOut, getToken }: {
     setCampaigns(shared.campaigns);
     setBaseLinks(shared.baseLinks);
     setOpts(shared.options);
+    setWorkshops(shared.workshops);
     return shared;
   }, [store]);
 
@@ -128,13 +142,15 @@ export function Console({ store, user, onSignOut, getToken }: {
   }, [loadShared, toast]);
 
   const loadCampaignData = useCallback(async (id: string) => {
-    const [l, s] = await Promise.all([store.loadLinks(id), store.loadSales(id)]);
+    const [l, s, a] = await Promise.all([store.loadLinks(id), store.loadSales(id), store.loadApplicants(id)]);
     setAllLinks(l);
     setSales(s);
+    setApplicants(a);
   }, [store]);
 
   useEffect(() => {
-    if (!campaignId) { setAllLinks([]); setSales([]); return; }
+    if (!campaignId) { setAllLinks([]); setSales([]); setApplicants([]); return; }
+    setTab((t) => (t === "applicants" ? "links" : t));
     localStorage.setItem(LAST_KEY, campaignId);
     setTxLinkFilter(null);
     loadCampaignData(campaignId).catch((e) => toast(`Couldn't load links: ${e.message}`, "err"));
@@ -171,10 +187,13 @@ export function Console({ store, user, onSignOut, getToken }: {
   }, [opts]);
   const links = useMemo(() => allLinks.filter((l) => !l.removed_at), [allLinks]);
   const removed = useMemo(() => allLinks.filter((l) => l.removed_at), [allLinks]);
-  const longOf = useCallback((r: LinkRow) => (campaign ? longLinkFor(r, campaign, baseLinks) : null), [campaign, baseLinks]);
+  const longOf = useCallback((r: LinkRow) => (campaign ? longLinkFor(r, campaign, baseLinks, workshops) : null), [campaign, baseLinks, workshops]);
+  const applicantSources = useMemo(() => attributeApplicants(applicants, allLinks, workshops), [applicants, allLinks, workshops]);
   const attribution = useMemo(
-    () => (campaign ? attribute(sales, allLinks, campaign) : { bySale: new Map(), byLink: new Map() }),
-    [sales, allLinks, campaign],
+    () => (campaign
+      ? withApplicantWorkshops(attribute(sales, allLinks, campaign, workshops), sales, applicants, applicantSources)
+      : { bySale: new Map(), byLink: new Map(), workshopBySale: new Map() }),
+    [sales, allLinks, campaign, workshops, applicants, applicantSources],
   );
   const stats = useMemo(() => {
     const shortened = links.filter((l) => l.short_url).length;
@@ -286,6 +305,30 @@ export function Console({ store, user, onSignOut, getToken }: {
     try { await store.deleteBaseLink(id); } catch (e) { toast(`Couldn't delete: ${(e as Error).message}`, "err"); loadShared(); }
   };
 
+  const saveWorkshop = async (w: Workshop) => {
+    setWorkshops((p) => (p.some((x) => x.id === w.id) ? p.map((x) => (x.id === w.id ? w : x)) : [w, ...p]));
+    try { await store.saveWorkshop(w); } catch (e) { toast(`Workshop not saved: ${(e as Error).message}`, "err"); loadShared(); }
+  };
+  const deleteWorkshop = async (id: string) => {
+    setWorkshops((p) => p.filter((x) => x.id !== id));
+    setAllLinks((p) => p.map((l) => (l.workshop_id === id ? { ...l, workshop_id: null } : l)));
+    try { await store.deleteWorkshop(id); } catch (e) { toast(`Couldn't delete: ${(e as Error).message}`, "err"); loadShared(); }
+  };
+
+  const saveApplicant = useCallback(async (a: Applicant) => {
+    setApplicants((p) => p.map((x) => (x.id === a.id ? a : x)));
+    try { await store.saveApplicant(a); } catch (e) {
+      toast(`Not saved: ${(e as Error).message}`, "err");
+      if (campaignId) loadCampaignData(campaignId);
+    }
+  }, [store, toast, campaignId, loadCampaignData]);
+
+  const importApplicants = async (rows: ApplicantForm[]) => {
+    if (!campaign) return;
+    await store.importApplicants(rows);
+    setApplicants(await store.loadApplicants(campaign.id));
+  };
+
   const importSales = async (rows: Sale[], kind: SaleKind, replace: boolean) => {
     if (!campaign) return;
     if (replace) await store.clearSales(campaign.id, kind);
@@ -299,6 +342,7 @@ export function Console({ store, user, onSignOut, getToken }: {
       const base = resolveBase(r, campaign, baseLinks);
       return {
         date: r.post_date, type: r.type, platform: r.platform, channel: r.channel, tag: r.tag, owner: r.owner ?? "",
+        workshop: workshopOf(r, workshops)?.name ?? "", src: usesSrc(campaign) ? srcFor(r, workshops) : "",
         organic_or_paid: r.paid ? "Paid" : "Organic",
         base_link: base && base.via !== "custom" ? base.label : "", custom_url: r.custom_url ?? "",
         long_link: longOf(r) ?? "", short_link: r.short_url ?? "", published_link: r.published_url ?? "",
@@ -315,8 +359,9 @@ export function Console({ store, user, onSignOut, getToken }: {
   const vName = (v: string) => VERTICALS.find((x) => x.id === v)?.name ?? v;
 
   const ctx: Ctx | null = campaign && {
-    store, campaign, baseLinks, verticalBases, options, links, sales, attribution, longOf, bitlyReady, busy,
-    saveRows, addOption, shorten, repoint, remove, toast,
+    store, campaign, baseLinks, verticalBases, options, workshops, links, sales, applicants, applicantSources,
+    attribution, longOf, bitlyReady, busy, saveRows, addOption, shorten, repoint, remove, toast, saveApplicant,
+    openWorkshops: () => setWorkshopDialog(true),
     openRow: (row, date) => setRowDialog({ row, date }),
     openQr: setQrRow,
     openBaseLinks: () => setBaseDialog(true),
@@ -365,7 +410,7 @@ export function Console({ store, user, onSignOut, getToken }: {
         </div>
 
         <nav className="tabs" role="tablist">
-          {([["links", "All links"], ["calendar", "Calendar"], ["sales", "Sales"], ["transactions", "Transactions"]] as [Tab, string][]).map(([id, label]) => (
+          {([["links", "All links"], ["calendar", "Calendar"], ...(campaign?.vertical === "bootcamp" ? [["applicants", `Applicants${applicants.length ? ` · ${applicants.length}` : ""}`]] : []), ["sales", "Sales"], ["transactions", "Transactions"]] as [Tab, string][]).map(([id, label]) => (
             <button key={id} role="tab" aria-selected={tab === id} className={`tab ${tab === id ? "on" : ""}`} onClick={() => setTab(id)} disabled={!campaign}>{label}</button>
           ))}
         </nav>
@@ -409,9 +454,11 @@ export function Console({ store, user, onSignOut, getToken }: {
                   <div className="warn-text">Not chosen yet — rows save fine, links generate once you pick one.</div>
                 )}
                 <p className="muted small">Rows follow this unless they pick another base link or a custom URL. Change it any time; long links update everywhere.</p>
+                {bootcampBaseWarning(campaign, defaultBase?.url) && <p className="small warn-text">{bootcampBaseWarning(campaign, defaultBase?.url)}</p>}
               </div>
               <div className="base-actions">
                 <button className="btn" onClick={() => setBaseDialog(true)}>{defaultBase ? "Change base link" : "Choose base link"}</button>
+                <button className="btn" onClick={() => setWorkshopDialog(true)}>Workshops</button>
                 <button className="btn" onClick={exportCsv}>Export CSV</button>
                 <button className="btn" onClick={() => setImportMode("links")}>Import CSV</button>
                 <button className="btn" title={campaign.archived ? "Bring back into the switcher" : "Take this cohort out of the switcher. Nothing is deleted and links keep working."}
@@ -446,6 +493,7 @@ export function Console({ store, user, onSignOut, getToken }: {
 
           {ctx && tab === "links" && <LinksTab ctx={ctx} />}
           {ctx && tab === "calendar" && <CalendarTab ctx={ctx} />}
+          {ctx && tab === "applicants" && <ApplicantsTab ctx={ctx} />}
           {ctx && tab === "sales" && <SalesTab ctx={ctx} />}
           {ctx && tab === "transactions" && <TransactionsTab ctx={ctx} />}
         </>
@@ -470,7 +518,10 @@ export function Console({ store, user, onSignOut, getToken }: {
         />
       )}
       {ctx && importMode && (
-        <ImportDialog ctx={ctx} mode={importMode} user={user} onImportSales={importSales} onClose={() => setImportMode(null)} />
+        <ImportDialog ctx={ctx} mode={importMode} user={user} onImportSales={importSales} onImportApplicants={importApplicants} onClose={() => setImportMode(null)} />
+      )}
+      {workshopDialog && (
+        <WorkshopsDialog workshops={workshops} links={allLinks} onSave={saveWorkshop} onDelete={deleteWorkshop} onClose={() => setWorkshopDialog(false)} toast={toast} />
       )}
 
       <div className="toasts" aria-live="polite">

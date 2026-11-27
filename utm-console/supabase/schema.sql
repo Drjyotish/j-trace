@@ -75,6 +75,45 @@ create table if not exists public.links (
 );
 create index if not exists links_campaign_idx on public.links (campaign_id, post_date);
 
+-- Live workshops people and pushes come from. code goes into src / utm_content; aliases catch old codes ("lw").
+create table if not exists public.workshops (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  date date,
+  code text not null unique,
+  aliases text[] not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+alter table public.links add column if not exists workshop_id uuid references public.workshops(id) on delete set null;
+alter table public.links add column if not exists src_code text;
+
+-- Bootcamp applicants (cb.kkcreate.in/apply sheet) and where we are with each one.
+create table if not exists public.applicants (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.campaigns(id) on delete cascade,
+  external_id text not null,
+  form_status text,
+  source text,
+  applied_at timestamptz,
+  name text,
+  phone text,
+  email text,
+  commitment text,
+  answers jsonb not null default '{}',
+  stage text not null default 'applied'
+    check (stage in ('applied', 'contacted', 'eligible', 'willing', 'enrolled', 'not_fit', 'not_interested')),
+  owner text,
+  notes text,
+  next_followup date,
+  drop_reason text,
+  stage_changed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (campaign_id, external_id)
+);
+create index if not exists applicants_campaign_idx on public.applicants (campaign_id, stage);
+
 -- Purchases (learn.kkcreate.in export) and leads (bootcamp invite form).
 create table if not exists public.sales (
   id uuid primary key default gen_random_uuid(),
@@ -106,7 +145,7 @@ create index if not exists sales_campaign_idx on public.sales (campaign_id, kind
 do $$
 declare t text;
 begin
-  foreach t in array array['base_links', 'campaigns', 'options', 'links', 'sales'] loop
+  foreach t in array array['base_links', 'campaigns', 'options', 'links', 'sales', 'workshops', 'applicants'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists team_all on public.%I', t);
     execute format(

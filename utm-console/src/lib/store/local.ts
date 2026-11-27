@@ -1,5 +1,5 @@
-import type { BaseLink, Campaign, LinkRow, Option, Sale, SaleKind } from "../types";
-import type { Shared, Store } from "./index";
+import type { Applicant, ApplicantForm, BaseLink, Campaign, LinkRow, Option, Sale, SaleKind, Workshop } from "../types";
+import { newApplicant, type Shared, type Store } from "./index";
 
 const KEY = "kkc-utm-console:v1";
 
@@ -9,9 +9,11 @@ interface Db {
   options: Option[];
   links: LinkRow[];
   sales: Sale[];
+  workshops: Workshop[];
+  applicants: Applicant[];
 }
 
-const empty = (): Db => ({ campaigns: [], baseLinks: [], options: [], links: [], sales: [] });
+const empty = (): Db => ({ campaigns: [], baseLinks: [], options: [], links: [], sales: [], workshops: [], applicants: [] });
 
 function read(): Db {
   if (typeof localStorage === "undefined") return empty();
@@ -38,7 +40,7 @@ export class LocalStore implements Store {
 
   async loadShared(): Promise<Shared> {
     const db = read();
-    return { campaigns: db.campaigns, baseLinks: db.baseLinks, options: db.options };
+    return { campaigns: db.campaigns, baseLinks: db.baseLinks, options: db.options, workshops: db.workshops };
   }
   async saveCampaign(c: Campaign) {
     const db = read();
@@ -83,6 +85,36 @@ export class LocalStore implements Store {
       byKey.set(key(s), prev ? { ...s, id: prev.id } : s);
     }
     db.sales = [...byKey.values()];
+    write(db);
+  }
+  async saveWorkshop(w: Workshop) {
+    const db = read();
+    db.workshops = upsert(db.workshops, [w]);
+    write(db);
+  }
+  async deleteWorkshop(id: string) {
+    const db = read();
+    db.workshops = db.workshops.filter((w) => w.id !== id);
+    db.links = db.links.map((l) => (l.workshop_id === id ? { ...l, workshop_id: null } : l));
+    write(db);
+  }
+  async loadApplicants(campaignId: string) {
+    return read().applicants.filter((a) => a.campaign_id === campaignId);
+  }
+  async importApplicants(rows: ApplicantForm[]) {
+    const db = read();
+    const key = (a: { campaign_id: string; external_id: string }) => `${a.campaign_id}|${a.external_id}`;
+    const byKey = new Map(db.applicants.map((a) => [key(a), a]));
+    for (const f of rows) {
+      const prev = byKey.get(key(f));
+      byKey.set(key(f), prev ? { ...prev, ...f } : newApplicant(f));
+    }
+    db.applicants = [...byKey.values()];
+    write(db);
+  }
+  async saveApplicant(a: Applicant) {
+    const db = read();
+    db.applicants = upsert(db.applicants, [{ ...a, updated_at: new Date().toISOString() }]);
     write(db);
   }
   async clearSales(campaignId: string, kind: SaleKind) {

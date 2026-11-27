@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { LinkRow } from "@/lib/types";
-import { displayUrl, isShortOutdated, linkStatus, normaliseUrl, resolveBase, rowUtm } from "@/lib/utm";
+import { displayUrl, isShortOutdated, linkStatus, normaliseUrl, resolveBase, rowUtm, srcFor, usesSrc, workshopOf } from "@/lib/utm";
 import type { Ctx } from "./Console";
 import { copy, Empty, fmtDay, ownerColor } from "./ui";
 
@@ -98,8 +98,10 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [owner, setOwner] = useState("");
   const [platform, setPlatform] = useState("");
+  const [workshop, setWorkshop] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const { campaign, links } = ctx;
+  const bootcamp = usesSrc(campaign);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -110,11 +112,12 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
       if (["brief", "ready", "posted"].includes(status) && linkStatus(r) !== status) return false;
       if (owner && (r.owner ?? "__none__") !== owner) return false;
       if (platform && r.platform !== platform) return false;
+      if (workshop && (r.workshop_id ?? "__none__") !== workshop) return false;
       if (!needle) return true;
       return [r.type, r.platform, r.channel, r.tag, r.owner, long, r.short_url, r.published_url, r.notes]
         .some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-  }, [links, q, status, owner, platform, ctx]);
+  }, [links, q, status, owner, platform, workshop, ctx]);
 
   const groups = useMemo(() => {
     const m = new Map<string, LinkRow[]>();
@@ -130,7 +133,7 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
   const dupes = useMemo(() => {
     const seen = new Map<string, number>();
     for (const r of links) {
-      const u = rowUtm(r, campaign);
+      const u = rowUtm(r, campaign, ctx.workshops);
       const k = `${u.utm_source}|${u.utm_content}|${u.utm_term}`;
       seen.set(k, (seen.get(k) ?? 0) + 1);
     }
@@ -169,6 +172,13 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
           <option value="">Any platform</option>
           {platforms.map((p) => <option key={p}>{p}</option>)}
         </select>
+        {ctx.workshops.length > 0 && (
+          <select value={workshop} onChange={(e) => setWorkshop(e.target.value)} aria-label="Workshop">
+            <option value="">Any workshop</option>
+            <option value="__none__">Not from a workshop</option>
+            {ctx.workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        )}
         <span className="legend mono small muted">Platform=source · Organic/Paid=medium · Cohort=campaign · Channel+Type+Tag=content · Date=term</span>
       </div>
 
@@ -200,7 +210,7 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
                 <table className="links">
                   <thead>
                     <tr>
-                      <th>Type</th><th>Platform</th><th>Channel</th><th>Tag</th><th>Owner</th><th>Org / Paid</th>
+                      <th>Type</th><th>Platform</th><th>Channel</th><th>Tag</th><th>Workshop</th>{bootcamp && <th>src</th>}<th>Owner</th><th>Org / Paid</th>
                       <th>Base link</th><th>Long link</th><th>Short link</th><th>Published link</th><th>Status</th><th />
                     </tr>
                   </thead>
@@ -208,7 +218,7 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
                     {rows.map((r) => {
                       const long = ctx.longOf(r);
                       const base = resolveBase(r, campaign, ctx.baseLinks);
-                      const u = rowUtm(r, campaign);
+                      const u = rowUtm(r, campaign, ctx.workshops);
                       const dup = (dupes.get(`${u.utm_source}|${u.utm_content}|${u.utm_term}`) ?? 0) > 1;
                       return (
                         <tr key={r.id}>
@@ -216,6 +226,8 @@ export function LinksTab({ ctx }: { ctx: Ctx }) {
                           <td>{r.platform}</td>
                           <td className="nowrap">{r.channel}</td>
                           <td className="mono small">{r.tag || <span className="muted">—</span>}{dup && <span className="pill warn" title="Another row has the same source, content and date — sales can't tell them apart. Change the tag.">same UTM</span>}</td>
+                          <td className="small">{workshopOf(r, ctx.workshops)?.name ?? <span className="muted">—</span>}</td>
+                          {bootcamp && <td className="mono small nowrap">{srcFor(r, ctx.workshops)}</td>}
                           <td className="nowrap"><i className="odot" style={{ background: ownerColor(r.owner) }} />{r.owner ?? <span className="muted">Unassigned</span>}</td>
                           <td><span className={`pill ${r.paid ? "paid" : "organic"}`}>{r.paid ? "Paid" : "Organic"}</span></td>
                           <td className="small">

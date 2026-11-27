@@ -16,7 +16,21 @@ Modelled on the workshop console (All links · Calendar · Sales · Transactions
 - **UTM scheme** (same as the Storytelling console):
   `utm_source` = platform · `utm_medium` = `social` / `paid` · `utm_campaign` = cohort slug ·
   `utm_content` = channel-type-tag (e.g. `kkclearn-story-kickoff`) · `utm_term` = posting date.
-- **Sales** imports the learn.kkcreate.in (TagMango) export as purchases and the Bootcamp invite form as leads.
+- **Workshops** (button next to Export CSV) are the live workshops people come from, e.g. *Storytelling 101 · 22 Nov*
+  with code `st101-22nov`. Tag any link "Via workshop" (pitch in the session, workshop chat, attendee follow-up
+  mail/WhatsApp, brochure QR…). The code goes at the front of `utm_content`, and Sales and Applicants roll up
+  *by workshop*. Old codes go in a workshop's aliases — `lw` is mapped to Storytelling 101.
+- **Bootcamp links carry `src`.** The cb.kkcreate.in/apply form saves only `?src=` (or `utm_source`), so every
+  Bootcamp link gets a short code like `st101-22nov-wa-pitch`, and links default to `/apply`.
+  The landing page's "Request invite" button doesn't pass the query string on to `/apply`, so links to the landing
+  page show no source; the console warns about this. Site fix for whoever owns cb.kkcreate.in: forward
+  `location.search` on the Request-invite link, and save all `utm_*` values, not just `src`.
+- **Applicants** (Bootcamp cohorts): import the form sheet (File → Download → CSV), then work each person through
+  Applied → Contacted → Eligible → Willing to pay → Enrolled, or Not a fit / Not interested (with a reason).
+  Owner, next follow-up and call notes per person; all form answers on their call sheet; WhatsApp in one click.
+  Re-importing adds new people and keeps everyone's stage and notes. A paid purchase (matched by email or phone)
+  flags the applicant so you can mark them Enrolled, and credits the sale to the workshop they applied from.
+- **Sales** imports the learn.kkcreate.in (TagMango) export as purchases.
   Columns are auto-detected and adjustable; UTMs can come from utm_* columns or a landing-URL column.
   Re-importing the same orders updates them instead of double counting.
 

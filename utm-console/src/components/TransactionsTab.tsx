@@ -61,7 +61,6 @@ export function TransactionsTab({ ctx }: { ctx: Ctx }) {
       <Empty title="No transactions yet">
         <div className="row-gap">
           <button className="btn primary" onClick={() => ctx.openImport("purchase")}>Import purchases CSV</button>
-          <button className="btn" onClick={() => ctx.openImport("lead")}>Import invite requests CSV</button>
         </div>
       </Empty>
     );
@@ -73,7 +72,7 @@ export function TransactionsTab({ ctx }: { ctx: Ctx }) {
     <section>
       <div className="toolbar">
         <div className="seg">
-          {([["everyone", "Everyone"], ["refunded", "Refunded"], ["failed", "Failed payment"], ["coupon", "Used a coupon"], ["leads", "Invite requests"]] as [Filter, string][]).map(([id, label]) => (
+          {([["everyone", "Everyone"], ["refunded", "Refunded"], ["failed", "Failed payment"], ["coupon", "Used a coupon"]] as [Filter, string][]).map(([id, label]) => (
             <button key={id} className={filter === id ? "on" : ""} onClick={() => setFilter(id)}>{label}</button>
           ))}
         </div>

@@ -1,4 +1,4 @@
-import type { BaseLink, Campaign, LinkRow, LinkStatus } from "./types";
+import type { BaseLink, Campaign, LinkRow, LinkStatus, Workshop } from "./types";
 
 /** "@kkc.learn" -> "kkclearn", "Bio link" -> "biolink", "linkedin-post-1" -> "linkedinpost1" */
 export function slugPart(s: string | null | undefined): string {
@@ -31,8 +31,32 @@ export function mediumFor(paid: boolean): string {
   return paid ? "paid" : "social";
 }
 
-export function contentFor(channel: string, type: string, tag: string): string {
-  return [channel, type, tag].map(slugPart).filter(Boolean).join("-");
+/** channel-type-tag, prefixed with the workshop code when the push came through a workshop */
+export function contentFor(channel: string, type: string, tag: string, workshopCode?: string | null): string {
+  const parts = [channel, type, tag].map(slugPart).filter(Boolean);
+  return [kebab(workshopCode), ...parts].filter(Boolean).join("-");
+}
+
+const PLATFORM_SHORT: Record<string, string> = {
+  instagram: "ig", youtube: "yt", facebook: "fb", linkedin: "li", whatsapp: "wa", email: "em", gmail: "em",
+  threads: "th", x: "x", automation: "auto", brochure: "br", liveworkshop: "lw", zoom: "zoom", metaads: "meta",
+  googleads: "gads", fullvideoqr: "qr", kkcreatein: "web",
+};
+
+export function workshopOf(row: Pick<LinkRow, "workshop_id">, workshops: Workshop[]): Workshop | null {
+  return row.workshop_id ? workshops.find((w) => w.id === row.workshop_id) ?? null : null;
+}
+
+/** Short code the Bootcamp apply form saves (?src=). e.g. st101-22nov-wa-pitch */
+export function srcFor(row: Pick<LinkRow, "src_code" | "workshop_id" | "platform" | "tag">, workshops: Workshop[]): string {
+  if (row.src_code?.trim()) return kebab(row.src_code);
+  const p = slugPart(row.platform);
+  return [workshopOf(row, workshops)?.code, PLATFORM_SHORT[p] ?? p.slice(0, 6), kebab(row.tag)].filter(Boolean).join("-");
+}
+
+/** Bootcamp links carry src= because the apply form only saves that one value. */
+export function usesSrc(campaign: Pick<Campaign, "vertical">): boolean {
+  return campaign.vertical === "bootcamp";
 }
 
 export interface Utm {
@@ -43,14 +67,14 @@ export interface Utm {
   utm_term: string;
 }
 
-type UtmRow = Pick<LinkRow, "platform" | "paid" | "channel" | "type" | "tag" | "post_date">;
+type UtmRow = Pick<LinkRow, "platform" | "paid" | "channel" | "type" | "tag" | "post_date"> & Partial<Pick<LinkRow, "workshop_id">>;
 
-export function rowUtm(row: UtmRow, campaign: Pick<Campaign, "slug">): Utm {
+export function rowUtm(row: UtmRow, campaign: Pick<Campaign, "slug">, workshops: Workshop[] = []): Utm {
   return {
     utm_source: sourceFor(row.platform),
     utm_medium: mediumFor(row.paid),
     utm_campaign: campaign.slug,
-    utm_content: contentFor(row.channel, row.type, row.tag),
+    utm_content: contentFor(row.channel, row.type, row.tag, workshopOf({ workshop_id: row.workshop_id ?? null }, workshops)?.code),
     utm_term: row.post_date,
   };
 }
@@ -71,11 +95,12 @@ export function normaliseUrl(raw: string | null | undefined): string | null {
 }
 
 /** Adds UTM params to a base URL, keeping its own query (minus old utm_*) and hash. */
-export function buildLongUrl(base: string, utm: Utm): string | null {
+export function buildLongUrl(base: string, utm: Utm, src?: string | null): string | null {
   const norm = normaliseUrl(base);
   if (!norm) return null;
   const u = new URL(norm);
-  for (const k of [...u.searchParams.keys()]) if (k.startsWith("utm_")) u.searchParams.delete(k);
+  for (const k of [...u.searchParams.keys()]) if (k.startsWith("utm_") || k === "src") u.searchParams.delete(k);
+  if (src) u.searchParams.set("src", src);
   const order: (keyof Utm)[] = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
   for (const k of order) if (utm[k]) u.searchParams.set(k, utm[k]);
   return u.toString();
@@ -104,10 +129,22 @@ export function resolveBase(
   return null;
 }
 
-export function longLinkFor(row: LinkRow, campaign: Campaign, baseLinks: BaseLink[]): string | null {
+export function longLinkFor(row: LinkRow, campaign: Campaign, baseLinks: BaseLink[], workshops: Workshop[] = []): string | null {
   const base = resolveBase(row, campaign, baseLinks);
   if (!base) return null;
-  return buildLongUrl(base.url, rowUtm(row, campaign));
+  return buildLongUrl(base.url, rowUtm(row, campaign, workshops), usesSrc(campaign) ? srcFor(row, workshops) : null);
+}
+
+/** cb.kkcreate.in's landing page doesn't pass ?src= on to /apply, so only /apply links get attributed. */
+export function bootcampBaseWarning(campaign: Pick<Campaign, "vertical">, url: string | null | undefined): string | null {
+  if (!usesSrc(campaign) || !url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname === "cb.kkcreate.in" && !/\/apply\/?$/.test(u.pathname)) {
+      return "The bootcamp landing page doesn't pass src on to the form, so applications from this link show no source. Point it at cb.kkcreate.in/apply, or get the site to forward the query string.";
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 export function linkStatus(row: Pick<LinkRow, "published_url" | "used_long" | "short_url">): LinkStatus {

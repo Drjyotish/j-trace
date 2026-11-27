@@ -1,5 +1,5 @@
 import Papa from "papaparse";
-import type { Sale, SaleKind, SaleStatus } from "./types";
+import type { ApplicantForm, Sale, SaleKind, SaleStatus } from "./types";
 import { utmFromUrl } from "./utm";
 
 export interface ParsedCsv {
@@ -152,6 +152,8 @@ export const LINK_COLUMNS = [
   "channel",
   "tag",
   "owner",
+  "workshop",
+  "src",
   "organic_or_paid",
   "base_link",
   "custom_url",
@@ -161,3 +163,66 @@ export const LINK_COLUMNS = [
   "status",
   "notes",
 ] as const;
+
+/** Bootcamp application form (cb.kkcreate.in/apply sheet). Everything not listed here lands in "answers". */
+export const APPLICANT_FIELDS = [
+  { key: "external_id", label: "Application ID", guess: /^(id|application[\s_-]*id|response[\s_-]*id)$/i },
+  { key: "form_status", label: "Form status (Submitted / Incomplete)", guess: /^status$/i },
+  { key: "source", label: "Source (?src=)", guess: /^(source|src|utm[\s_-]*source)$/i },
+  { key: "applied_at", label: "Applied on", guess: /^(started|submitted|timestamp|created|date)/i },
+  { key: "name", label: "Name", guess: /^(full[\s_-]*)?name$/i },
+  { key: "phone", label: "WhatsApp / phone", guess: /whats ?app|phone|mobile/i },
+  { key: "email", label: "Email", guess: /e-?mail/i },
+  { key: "commitment", label: "Commitment", guess: /commit/i },
+] as const;
+
+export type ApplicantFieldKey = (typeof APPLICANT_FIELDS)[number]["key"];
+export type ApplicantMapping = Partial<Record<ApplicantFieldKey, string>>;
+
+export function guessApplicantMapping(headers: string[]): ApplicantMapping {
+  const m: ApplicantMapping = {};
+  const used = new Set<string>();
+  for (const f of APPLICANT_FIELDS) {
+    const h = headers.find((x) => !used.has(x) && f.guess.test(x));
+    if (h) { m[f.key] = h; used.add(h); }
+  }
+  return m;
+}
+
+/** Columns that are bookkeeping, not answers worth showing on the call sheet. */
+const SKIP_ANSWER = /^(last step|updated|website)$/i;
+
+export function rowsToApplicants(rows: Record<string, string>[], mapping: ApplicantMapping, campaignId: string): ApplicantForm[] {
+  const mapped = new Set(Object.values(mapping));
+  const get = (r: Record<string, string>, k: ApplicantFieldKey) => (mapping[k] ? clean(r[mapping[k]!]) : null);
+  const out: ApplicantForm[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const email = get(r, "email")?.toLowerCase() ?? null;
+    const phone = get(r, "phone");
+    const name = get(r, "name");
+    if (!email && !phone && !name) continue;
+    const ext = get(r, "external_id") ?? email ?? phone ?? name!;
+    if (seen.has(ext)) continue;
+    seen.add(ext);
+    const answers: Record<string, string> = {};
+    for (const [h, v] of Object.entries(r)) {
+      if (!h || mapped.has(h) || SKIP_ANSWER.test(h)) continue;
+      const val = clean(v);
+      if (val) answers[h] = val;
+    }
+    out.push({
+      campaign_id: campaignId,
+      external_id: ext,
+      form_status: get(r, "form_status"),
+      source: get(r, "source")?.toLowerCase() ?? null,
+      applied_at: parseDate(get(r, "applied_at") ?? undefined),
+      name,
+      phone,
+      email,
+      commitment: get(r, "commitment"),
+      answers,
+    });
+  }
+  return out;
+}

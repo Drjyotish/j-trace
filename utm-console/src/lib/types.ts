@@ -47,6 +47,10 @@ export interface LinkRow {
   tag: string;
   owner: string | null;
   paid: boolean;
+  /** the live workshop this push came through (pitch, workshop chat, follow-up to attendees…) */
+  workshop_id: string | null;
+  /** Bootcamp only: overrides the auto src code (the apply form saves ?src=) */
+  src_code: string | null;
   /** null = follow the cohort's default base link */
   base_link_id: string | null;
   /** set = ignore base links and use this URL */
@@ -90,3 +94,59 @@ export interface Sale {
 }
 
 export type LinkStatus = "brief" | "ready" | "posted";
+
+/** A live workshop that people (and pushes) come from. Shared across verticals. */
+export interface Workshop {
+  id: string;
+  name: string;
+  date: string | null;
+  /** short code used in src / utm_content, e.g. st101-22nov */
+  code: string;
+  /** older codes that mean this workshop, e.g. "lw" */
+  aliases: string[];
+  created_at?: string;
+}
+
+export type Stage = "applied" | "contacted" | "eligible" | "willing" | "enrolled" | "not_fit" | "not_interested";
+
+export const STAGES: { id: Stage; label: string; exit?: boolean; hint: string }[] = [
+  { id: "applied", label: "Applied", hint: "Filled the form, nobody has spoken to them yet" },
+  { id: "contacted", label: "Contacted", hint: "We've reached them on call / WhatsApp" },
+  { id: "eligible", label: "Eligible", hint: "Fits the bootcamp and we can help them" },
+  { id: "willing", label: "Willing to pay", hint: "Agreed to the fee, payment pending" },
+  { id: "enrolled", label: "Enrolled", hint: "Paid" },
+  { id: "not_fit", label: "Not a fit", exit: true, hint: "Not eligible, or we can't help them" },
+  { id: "not_interested", label: "Not interested", exit: true, hint: "Said no, can't afford, or no response" },
+];
+
+export const DROP_REASONS = ["Not eligible", "We can't help", "Can't afford", "Not interested", "No response", "Next cohort"];
+
+/** Someone who applied through the Bootcamp form. Form fields re-import; pipeline fields are ours. */
+export interface Applicant {
+  id: string;
+  campaign_id: string;
+  external_id: string;
+  form_status: string | null;
+  /** raw ?src= the form saved */
+  source: string | null;
+  applied_at: string | null;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  commitment: string | null;
+  /** every other form answer, header -> value */
+  answers: Record<string, string>;
+  stage: Stage;
+  owner: string | null;
+  notes: string | null;
+  next_followup: string | null;
+  drop_reason: string | null;
+  stage_changed_at: string | null;
+  updated_at?: string;
+}
+
+/** The form-owned part of an applicant — what an import is allowed to write. */
+export type ApplicantForm = Pick<
+  Applicant,
+  "campaign_id" | "external_id" | "form_status" | "source" | "applied_at" | "name" | "phone" | "email" | "commitment" | "answers"
+>;

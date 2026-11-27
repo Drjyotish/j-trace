@@ -59,6 +59,18 @@ export function SalesTab({ ctx }: { ctx: Ctx }) {
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [ok]);
 
+  const byWorkshop = useMemo(() => {
+    const names = new Map(ctx.workshops.map((w) => [w.id, w.name]));
+    const m = new Map<string, { n: number; amt: number }>();
+    for (const s of ok) {
+      const wid = attribution.workshopBySale.get(s.id);
+      const k = wid ? names.get(wid) ?? "Workshop" : "Not from a workshop";
+      const v = m.get(k) ?? { n: 0, amt: 0 };
+      m.set(k, { n: v.n + 1, amt: v.amt + (s.amount ?? 0) });
+    }
+    return [...m.entries()].sort((a, b) => Number(a[0] === "Not from a workshop") - Number(b[0] === "Not from a workshop") || b[1].n - a[1].n);
+  }, [ok, attribution, ctx.workshops]);
+
   const byProduct = useMemo(() => {
     const m = new Map<string, { n: number; amt: number }>();
     for (const s of ok) {
@@ -72,10 +84,9 @@ export function SalesTab({ ctx }: { ctx: Ctx }) {
   if (!sales.length) {
     return (
       <Empty title="No sales or leads yet">
-        <p className="muted">Import the learn.kkcreate.in export for purchases, or the Bootcamp invite form responses for leads. Each one is matched to the link it came through by its UTMs.</p>
+        <p className="muted">Import the learn.kkcreate.in export. Each purchase is matched to the link — and workshop — it came through by its UTMs.{campaign.vertical === "bootcamp" && " Bootcamp applications go in the Applicants tab; purchases here mark paid applicants."}</p>
         <div className="row-gap">
           <button className="btn primary" onClick={() => ctx.openImport("purchase")}>Import purchases CSV</button>
-          <button className="btn" onClick={() => ctx.openImport("lead")}>Import invite requests CSV</button>
         </div>
       </Empty>
     );
@@ -87,10 +98,12 @@ export function SalesTab({ ctx }: { ctx: Ctx }) {
   return (
     <section>
       <div className="toolbar">
-        <div className="seg">
-          <button className={kind === "purchase" ? "on" : ""} onClick={() => setKind("purchase")}>Purchases</button>
-          <button className={kind === "lead" ? "on" : ""} onClick={() => setKind("lead")}>Invite requests</button>
-        </div>
+        {hasLeads && (
+          <div className="seg">
+            <button className={kind === "purchase" ? "on" : ""} onClick={() => setKind("purchase")}>Purchases</button>
+            <button className={kind === "lead" ? "on" : ""} onClick={() => setKind("lead")}>Leads</button>
+          </div>
+        )}
         <div className="seg">
           <button className={coupon === "all" ? "on" : ""} onClick={() => setCoupon("all")}>All</button>
           <button className={coupon === "coupon" ? "on" : ""} onClick={() => setCoupon("coupon")}>Used a coupon</button>
@@ -153,6 +166,13 @@ export function SalesTab({ ctx }: { ctx: Ctx }) {
               )}
             </div>
             <div className="side-stack">
+              <div className="card">
+                <h3>By workshop</h3>
+                {byWorkshop.map(([w, v]) => (
+                  <div className="kv" key={w}><span className={w === "Not from a workshop" ? "muted" : ""}>{w}</span><span className="mono">{v.n}{kind === "purchase" && <span className="muted small"> {inr(v.amt)}</span>}</span></div>
+                ))}
+                <p className="small muted">Tag links with “Via workshop” to see which workshop sold what.</p>
+              </div>
               <div className="card">
                 <h3>By source</h3>
                 {byPlatform.map(([src, n]) => (

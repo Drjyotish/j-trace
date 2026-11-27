@@ -100,6 +100,13 @@ export function fmtDay(iso: string, opts: Intl.DateTimeFormatOptions = { month: 
   return new Date(y, m - 1, d).toLocaleDateString("en-IN", opts);
 }
 
+/** A timestamp's calendar day in the viewer's timezone (IST for the team), as YYYY-MM-DD. */
+export function localDay(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { LinkRow } from "@/lib/types";
 import { newId } from "@/lib/store";
-import { buildLongUrl, displayUrl, normaliseUrl, resolveBase, rowUtm } from "@/lib/utm";
+import { bootcampBaseWarning, buildLongUrl, displayUrl, kebab, normaliseUrl, resolveBase, rowUtm, srcFor, usesSrc } from "@/lib/utm";
 import type { Ctx, User } from "./Console";
 import { ChipPicker, Modal, monthGrid, todayIso } from "./ui";
 
@@ -19,6 +19,9 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
   const [paid, setPaid] = useState(row?.paid ?? false);
   const [tag, setTag] = useState(row?.tag ?? "");
   const [notes, setNotes] = useState(row?.notes ?? "");
+  const [workshopId, setWorkshopId] = useState<string>(row?.workshop_id ?? "");
+  const [srcCode, setSrcCode] = useState(row?.src_code ?? "");
+  const bootcamp = usesSrc(campaign);
   const [baseChoice, setBaseChoice] = useState<string>(row?.custom_url ? "__custom__" : row?.base_link_id ?? "__default__");
   const [customUrl, setCustomUrl] = useState(row?.custom_url ?? "");
   const start = row?.post_date ?? date ?? campaign.start_date ?? todayIso();
@@ -39,6 +42,8 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
     tag: tag.trim(),
     owner,
     paid,
+    workshop_id: workshopId || null,
+    src_code: bootcamp && srcCode.trim() ? kebab(srcCode) : null,
     base_link_id: baseChoice.startsWith("__") ? null : baseChoice,
     custom_url: baseChoice === "__custom__" ? normaliseUrl(customUrl) : null,
     short_url: row?.short_url ?? null,
@@ -52,12 +57,15 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
   });
 
   const preview = dates.length ? draftRow(dates[0]) : null;
-  const utm = preview ? rowUtm(preview, campaign) : null;
+  const utm = preview ? rowUtm(preview, campaign, ctx.workshops) : null;
+  const src = preview && bootcamp ? srcFor(preview, ctx.workshops) : null;
   const base = preview ? resolveBase(preview, campaign, ctx.baseLinks) : null;
-  const long = utm && base ? buildLongUrl(base.url, utm) : null;
+  const long = utm && base ? buildLongUrl(base.url, utm, src) : null;
+  const srcClash = src && preview ? ctx.links.find((l) => l.id !== preview.id && srcFor(l, ctx.workshops) === src) : null;
+  const baseWarning = bootcampBaseWarning(campaign, base?.url);
   const clash = preview && utm
     ? ctx.links.find((l) => l.id !== preview.id && dates.includes(l.post_date) && (() => {
-        const u = rowUtm(l, campaign);
+        const u = rowUtm(l, campaign, ctx.workshops);
         return u.utm_source === utm.utm_source && u.utm_content === utm.utm_content;
       })())
     : null;
@@ -93,6 +101,24 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
 
       <div className="field two">
         <div>
+          <div className="field-label">Via workshop <span className="muted small">— optional</span></div>
+          <select value={workshopId} onChange={(e) => setWorkshopId(e.target.value)}>
+            <option value="">Not from a workshop</option>
+            {ctx.workshops.map((w) => <option key={w.id} value={w.id}>{w.name}{w.date ? ` · ${w.date}` : ""}</option>)}
+          </select>
+          <button type="button" className="linkish small" onClick={ctx.openWorkshops}>Manage workshops</button>
+        </div>
+        {bootcamp ? (
+          <div>
+            <div className="field-label">src code <span className="mono muted">?src=</span></div>
+            <input className="mono" value={srcCode} onChange={(e) => setSrcCode(e.target.value)} placeholder={preview ? srcFor({ ...preview, src_code: null }, ctx.workshops) : "auto"} />
+            <p className="small muted">The apply form saves only this. Leave blank for the automatic code.</p>
+          </div>
+        ) : <div />}
+      </div>
+
+      <div className="field two">
+        <div>
           <div className="field-label">Tag <span className="mono muted">utm_content</span></div>
           <input list="tag-suggestions" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="e.g. kickoff, reel-1, countdown" />
           <datalist id="tag-suggestions">{tagSuggestions.map((t) => <option key={t} value={t} />)}</datalist>
@@ -118,6 +144,7 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
         {baseChoice === "__custom__" && (
           <input className="mono" style={{ marginTop: 8 }} value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} placeholder="https://…" />
         )}
+        {baseWarning && <p className="small warn-text">{baseWarning}</p>}
         {baseChoice === "__default__" && !defaultBase && (
           <p className="small warn-text">Fine to save now — the long link appears once you pick the cohort&apos;s base link.</p>
         )}
@@ -156,6 +183,8 @@ export function RowDialog({ ctx, row, date, user, onClose }: {
           </div>
         )}
         <div className="mono small long-preview">{long ?? <span className="muted">No base link yet — the long link will be built when one is chosen.</span>}</div>
+        {src && <div className="mono small" style={{ marginBottom: 6 }}><span className="muted">src</span> {src}</div>}
+        {srcClash && <p className="small warn-text">Another link already uses src “{src}”, so applications can&apos;t be told apart. Set a different src code or tag.</p>}
         {clash && <p className="small warn-text">Another row on this day already has this source + content. Add or change the tag so Sales can tell them apart.</p>}
         {editing && row?.short_url && long && row.short_target && row.short_target !== long && (
           <p className="small warn-text">This changes the long link. The existing short link will be flagged so you can re-point it.</p>

@@ -1,15 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { LinkRow, Sale, SaleKind } from "@/lib/types";
-import { newId } from "@/lib/store";
-import { attribute } from "@/lib/attribution";
-import { guessMapping, parseCsv, parseDate, rowsToSales, SALE_FIELDS, type Mapping, type ParsedCsv } from "@/lib/csv";
+import type { ApplicantForm, LinkRow, Sale, SaleKind } from "@/lib/types";
+import { newApplicant, newId } from "@/lib/store";
+import { attribute, attributeApplicants } from "@/lib/attribution";
+import {
+  APPLICANT_FIELDS, guessApplicantMapping, guessMapping, parseCsv, parseDate, rowsToApplicants, rowsToSales, SALE_FIELDS,
+  type ApplicantMapping, type Mapping, type ParsedCsv,
+} from "@/lib/csv";
 import { normaliseUrl } from "@/lib/utm";
 import type { Ctx, User } from "./Console";
 import { Modal } from "./ui";
 
-export type ImportMode = SaleKind | "links";
+export type ImportMode = SaleKind | "links" | "applicants";
 
 const LINK_HEADERS: Record<string, RegExp> = {
   date: /^(post[\s_]*)?date|date of posting|link use date|utm_term/i,
@@ -24,6 +27,7 @@ const LINK_HEADERS: Record<string, RegExp> = {
   short_link: /short[\s_]*link|bit\.?ly/i,
   published_link: /published/i,
   notes: /^notes?$/i,
+  workshop: /^workshop$/i,
 };
 
 function isoDay(raw: string | undefined): string | null {
@@ -36,12 +40,15 @@ function isoDay(raw: string | undefined): string | null {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
+export function ImportDialog({ ctx, mode, user, onImportSales, onImportApplicants, onClose }: {
   ctx: Ctx; mode: ImportMode; user: User | null;
-  onImportSales: (rows: Sale[], kind: SaleKind, replace: boolean) => Promise<void>; onClose: () => void;
+  onImportSales: (rows: Sale[], kind: SaleKind, replace: boolean) => Promise<void>;
+  onImportApplicants: (rows: ApplicantForm[]) => Promise<void>;
+  onClose: () => void;
 }) {
   const [file, setFile] = useState<{ name: string; csv: ParsedCsv } | null>(null);
   const [mapping, setMapping] = useState<Mapping>({});
+  const [aMapping, setAMapping] = useState<ApplicantMapping>({});
   const [replace, setReplace] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,11 +60,22 @@ export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
     const csv = parseCsv(await f.text());
     if (!csv.headers.length || !csv.rows.length) { setError("Couldn't find a header row and data in that CSV."); return; }
     setFile({ name: f.name, csv });
-    if (mode !== "links") setMapping(guessMapping(csv.headers));
+    if (mode === "applicants") setAMapping(guessApplicantMapping(csv.headers));
+    else if (mode !== "links") setMapping(guessMapping(csv.headers));
   };
 
+  const applicantPreview = useMemo(() => {
+    if (!file || mode !== "applicants") return null;
+    const rows = rowsToApplicants(file.csv.rows, aMapping, ctx.campaign.id);
+    const existing = new Set(ctx.applicants.map((a) => a.external_id));
+    const sources = attributeApplicants(rows.map(newApplicant), ctx.links, ctx.workshops);
+    const codes = new Map<string, number>();
+    rows.forEach((r) => codes.set(r.source || "(none)", (codes.get(r.source || "(none)") ?? 0) + 1));
+    return { rows, added: rows.filter((r) => !existing.has(r.external_id)).length, matched: sources.size, codes: [...codes.entries()].sort((a, b) => b[1] - a[1]) };
+  }, [file, aMapping, mode, ctx.campaign.id, ctx.applicants, ctx.links, ctx.workshops]);
+
   const salesPreview = useMemo(() => {
-    if (!file || mode === "links") return null;
+    if (!file || mode === "links" || mode === "applicants") return null;
     const rows = rowsToSales(file.csv.rows, mapping, { kind: mode, campaignId: ctx.campaign.id, batch: file.name, newId });
     const a = attribute(rows, ctx.links, ctx.campaign);
     const otherCampaign = rows.filter((r) => r.utm_campaign && r.utm_campaign !== ctx.campaign.slug).length;
@@ -81,6 +99,8 @@ export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
       out.push({
         id: newId(), campaign_id: ctx.campaign.id, post_date: date, type, platform, channel,
         tag: get(r, "tag"), owner: get(r, "owner") || null, paid: /paid/i.test(get(r, "paid")),
+        workshop_id: ctx.workshops.find((w) => [w.name.toLowerCase(), w.code].includes(get(r, "workshop").toLowerCase()))?.id ?? null,
+        src_code: null,
         base_link_id: base?.id ?? null, custom_url: base ? null : normaliseUrl(get(r, "custom_url")),
         short_url: shortUrl, short_target: null, published_url: normaliseUrl(get(r, "published_link")),
         used_long: false, notes: get(r, "notes") || null, removed_at: null, created_by: user?.email ?? null,
@@ -102,7 +122,10 @@ export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
         }
         await ctx.saveRows(linksPreview.rows);
         ctx.toast(`Imported ${linksPreview.rows.length} rows`);
-      } else if (salesPreview && mode !== "links") {
+      } else if (mode === "applicants" && applicantPreview) {
+        await onImportApplicants(applicantPreview.rows);
+        ctx.toast(`${applicantPreview.added} new applicant${applicantPreview.added === 1 ? "" : "s"}, ${applicantPreview.rows.length - applicantPreview.added} updated`);
+      } else if (salesPreview && mode !== "links" && mode !== "applicants") {
         await onImportSales(salesPreview.rows, mode, replace);
         ctx.toast(`Imported ${salesPreview.rows.length} ${mode === "purchase" ? "purchases" : "invite requests"}`);
       }
@@ -114,13 +137,15 @@ export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
     }
   };
 
-  const title = mode === "links" ? "Import links CSV" : mode === "purchase" ? "Import purchases" : "Import invite requests";
+  const title = mode === "links" ? "Import links CSV" : mode === "purchase" ? "Import purchases" : mode === "applicants" ? "Import bootcamp applications" : "Import invite requests";
   const sub = mode === "links"
     ? "Use a file from Export CSV, or any sheet with date, type, platform and channel columns."
     : mode === "purchase"
       ? "The learn.kkcreate.in (TagMango) export. Re-importing the same orders updates them instead of double counting."
-      : "Bootcamp invite form responses (Google Sheet / form export). Counted as leads per link.";
-  const count = mode === "links" ? linksPreview?.rows.length ?? 0 : salesPreview?.rows.length ?? 0;
+      : mode === "applicants"
+        ? "The cb.kkcreate.in/apply sheet (File → Download → CSV). Re-import any time: new people are added; stage, owner and notes are kept."
+        : "Invite form responses. Counted as leads per link.";
+  const count = mode === "links" ? linksPreview?.rows.length ?? 0 : mode === "applicants" ? applicantPreview?.rows.length ?? 0 : salesPreview?.rows.length ?? 0;
 
   return (
     <Modal wide title={title} sub={sub} onClose={onClose}
@@ -134,7 +159,35 @@ export function ImportDialog({ ctx, mode, user, onImportSales, onClose }: {
         {file && <p className="small muted">{file.name} · {file.csv.rows.length} rows · {file.csv.headers.length} columns</p>}
       </div>
 
-      {file && mode !== "links" && salesPreview && (
+      {file && mode === "applicants" && applicantPreview && (
+        <>
+          <div className="field">
+            <div className="field-label">Match the columns</div>
+            <div className="map-grid">
+              {APPLICANT_FIELDS.map((f) => (
+                <label key={f.key} className="map-row">
+                  <span className="small">{f.label}</span>
+                  <select value={aMapping[f.key] ?? ""} onChange={(e) => setAMapping((m) => ({ ...m, [f.key]: e.target.value || undefined }))}>
+                    <option value="">— not in file —</option>
+                    {file.csv.headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <p className="small muted">Every other column (city, role, goals, problems…) is kept as form answers on each person&apos;s call sheet.</p>
+          </div>
+          <div className="preview">
+            <div className="field-label">Result</div>
+            <p className="small">
+              {applicantPreview.rows.length} applicants · <strong>{applicantPreview.added}</strong> new · {applicantPreview.rows.length - applicantPreview.added} already here (stage and notes kept) ·{" "}
+              <strong>{applicantPreview.matched}</strong> matched to a workshop or link
+            </p>
+            <p className="small muted">Source codes in this file: {applicantPreview.codes.map(([c, n]) => `${c} (${n})`).join(" · ")}</p>
+          </div>
+        </>
+      )}
+
+      {file && mode !== "links" && mode !== "applicants" && salesPreview && (
         <>
           <div className="field">
             <div className="field-label">Match the columns</div>
