@@ -1,0 +1,859 @@
+<title>Infinity Quest</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one-column game shell (max 720px) under a sticky HUD; the map is a vertical trail of realms, each a row of lesson nodes ending in a boss hex. Single night-world theme by choice. */
+:root {
+  --ink: #141229;
+  --panel: #1e1b3a;
+  --panel-2: #29254d;
+  --line: #3a3569;
+  --text: #f1edff;
+  --muted: #a7a2cf;
+  --xp: #ffc65a;
+  --xp-ink: #2a1d00;
+  --go: #52dcb0;
+  --bad: #ff6f7d;
+  --accent: #9a8bff;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--ink); color: var(--text); }
+body {
+  font-family: var(--body); font-size: 16px; line-height: 1.5;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(154,139,255,.13) 1px, transparent 0),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(154,139,255,.18), transparent 70%);
+  background-size: 22px 22px, 100% 100%;
+  background-attachment: fixed;
+  min-height: 100%;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--ink); }
+button { font: inherit; color: inherit; }
+a { color: var(--xp); }
+:focus-visible { outline: 3px solid var(--xp); outline-offset: 2px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.6rem, 5vw, 2.2rem); font-weight: 800; }
+h2 { font-size: 1.25rem; font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 700; }
+p { margin: 0; }
+.wrap { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px 64px; display: grid; gap: 18px; }
+.eyebrow { font-family: var(--mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* HUD */
+.hud { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: rgba(20,18,41,.92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.hud-in { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 10px; display: flex; align-items: center; gap: 12px; }
+.hud-who { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.hud-lvl { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.hud-lvl b { font-family: var(--display); font-size: .78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--xp), #ffe29a); border-radius: inherit; transition: width .5s ease; }
+.hud-stat { display: flex; align-items: center; gap: 5px; font-family: var(--mono); font-weight: 700; font-size: .9rem; white-space: nowrap; }
+.ring { width: 34px; height: 34px; }
+.hud-nav { display: flex; gap: 6px; }
+.iconbtn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; cursor: pointer; font-size: .85rem; font-weight: 600; }
+.iconbtn[aria-current="true"] { border-color: var(--xp); color: var(--xp); }
+
+.hex { --c: var(--accent); width: 40px; height: 44px; flex: none; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: var(--c); display: grid; place-items: center; font-family: var(--display); font-weight: 800; color: #120f26; font-size: 1rem; }
+.hex.big { width: 76px; height: 84px; font-size: 1.9rem; }
+
+/* Buttons and cards */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; padding: 13px 20px; font-weight: 700; font-size: 1rem; cursor: pointer; background: var(--xp); color: var(--xp-ink); box-shadow: 0 4px 0 #b8862a; transition: transform .08s, box-shadow .08s; text-decoration: none; }
+.btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b8862a; }
+.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+.btn.go { background: var(--go); color: #032b1f; box-shadow: 0 4px 0 #2a9a77; }
+.btn.danger { background: var(--bad); color: #2b0005; box-shadow: 0 4px 0 #b3404c; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn.wide { width: 100%; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 12px; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.main { border-color: var(--xp); color: var(--xp); }
+.chip.ok { border-color: var(--go); color: var(--go); }
+.chip.warn { border-color: var(--bad); color: var(--bad); }
+
+/* Home */
+.hero { display: grid; gap: 6px; }
+.next { background: linear-gradient(135deg, #2d2760, #1e1b3a 60%); border: 1px solid var(--accent); border-radius: 18px; padding: 20px; display: grid; gap: 12px; position: relative; overflow: hidden; }
+.next::after { content: "∞"; position: absolute; right: -6px; bottom: -48px; font-family: var(--display); font-size: 9rem; color: rgba(154,139,255,.12); pointer-events: none; }
+.quests { display: grid; gap: 8px; }
+.quest { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; }
+.tick { width: 22px; height: 22px; border-radius: 7px; border: 2px solid var(--line); display: grid; place-items: center; font-size: .8rem; font-weight: 800; }
+.quest.done .tick { background: var(--go); border-color: var(--go); color: #032b1f; }
+.quest.done span { color: var(--muted); text-decoration: line-through; }
+
+/* Map */
+.trail { display: grid; gap: 14px; position: relative; }
+.realm { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 16px; display: grid; gap: 12px; position: relative; }
+.realm.locked { opacity: .55; }
+.realm.isnext { border-color: var(--xp); box-shadow: 0 0 0 3px rgba(255,198,90,.12); }
+.realm-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; width: 100%; }
+.stage { font-family: var(--display); font-weight: 800; font-size: 1.35rem; color: var(--accent); width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
+.realm-title { min-width: 0; display: grid; gap: 2px; }
+.realm-title small { color: var(--muted); font-size: .85rem; }
+.nodes { display: flex; align-items: center; justify-content: space-between; gap: 6px; position: relative; padding: 4px 6px 0 50px; }
+.nodes::before { content: ""; position: absolute; left: 70px; right: 30px; top: 32px; height: 4px; background: var(--line); border-radius: 4px; }
+.node { position: relative; z-index: 1; width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--line); background: var(--panel-2); display: grid; place-items: center; cursor: pointer; font-family: var(--display); font-weight: 800; font-size: 1rem; color: var(--muted); padding: 0; }
+.node.done { background: var(--xp); border-color: #ffe29a; color: var(--xp-ink); }
+.node.open { border-color: var(--accent); color: var(--text); }
+.node.current { border-color: var(--xp); color: var(--xp); animation: pulse 1.6s ease-in-out infinite; }
+.node.locked { cursor: not-allowed; }
+.node .stars { position: absolute; bottom: -18px; font-family: var(--mono); font-size: .62rem; letter-spacing: 1px; color: var(--xp); white-space: nowrap; }
+.node.boss { width: 64px; height: 70px; border: 0; border-radius: 0; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: var(--line); font-size: .66rem; letter-spacing: .04em; }
+.node.boss.open { background: var(--bad); color: #2b0005; }
+.node.boss.done { background: var(--go); color: #032b1f; }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,198,90,.55); } 50% { box-shadow: 0 0 0 10px rgba(255,198,90,0); } }
+
+/* Track page */
+.back { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 0; font-weight: 600; justify-self: start; }
+.why { border-left: 3px solid var(--xp); padding: 4px 0 4px 12px; font-weight: 600; }
+.list { display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; background: var(--panel-2); border: 1px solid transparent; border-radius: 12px; padding: 12px; text-align: left; cursor: pointer; width: 100%; color: inherit; text-decoration: none; min-width: 0; }
+.item:hover:not(:disabled) { border-color: var(--accent); }
+.item:disabled { opacity: .5; cursor: not-allowed; }
+.item .t { min-width: 0; display: grid; gap: 2px; }
+.item .t small { color: var(--muted); }
+.num { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--panel); border: 2px solid var(--line); font-family: var(--display); font-weight: 800; font-size: .8rem; }
+.num.done { background: var(--xp); color: var(--xp-ink); border-color: var(--xp); }
+.checks { display: grid; gap: 8px; }
+.checks label { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.checks input { width: 20px; height: 20px; accent-color: var(--go); margin: 2px 0 0; }
+pre.prompt { white-space: pre-wrap; word-break: break-word; background: var(--ink); border: 1px dashed var(--line); border-radius: 10px; padding: 12px; font-family: var(--mono); font-size: .8rem; max-height: 220px; overflow: auto; margin: 0; }
+details summary { cursor: pointer; font-weight: 700; }
+
+/* Player */
+.player { display: grid; gap: 16px; }
+.ptop { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.x { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: 38px; height: 38px; cursor: pointer; font-size: 1.1rem; }
+.segs { display: flex; gap: 4px; }
+.segs i { flex: 1; height: 10px; border-radius: 99px; background: var(--panel-2); }
+.segs i.on { background: var(--xp); }
+.segs i.miss { background: var(--bad); }
+.combo { font-family: var(--mono); font-weight: 700; color: var(--xp); white-space: nowrap; min-width: 52px; text-align: right; }
+.combo.hot { animation: pop .3s ease; }
+@keyframes pop { 50% { transform: scale(1.3); } }
+.hearts { font-size: 1.2rem; letter-spacing: 2px; color: var(--bad); white-space: nowrap; }
+.timer { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.timer > i { display: block; height: 100%; background: var(--bad); }
+.qtype { font-family: var(--mono); font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.qtext { font-family: var(--display); font-weight: 700; font-size: clamp(1.1rem, 3.6vw, 1.35rem); line-height: 1.3; text-wrap: pretty; }
+.opts { display: grid; gap: 10px; }
+.opt { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: center; text-align: left; background: var(--panel); border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 14px; padding: 13px 14px; cursor: pointer; font-size: 1rem; min-width: 0; }
+.opt:hover:not(:disabled) { border-color: var(--accent); }
+.opt kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--line); border-radius: 6px; width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); }
+.opt.right { border-color: var(--go); background: rgba(82,220,176,.12); }
+.opt.wrong { border-color: var(--bad); background: rgba(255,111,125,.12); }
+.opt:disabled { cursor: default; }
+.tf { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tf .opt { grid-template-columns: 1fr; text-align: center; font-family: var(--display); font-weight: 700; font-size: 1.1rem; padding: 22px 10px; }
+.slots { display: grid; gap: 8px; counter-reset: s; }
+.slot { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: center; min-height: 48px; border: 2px dashed var(--line); border-radius: 12px; padding: 8px 12px; }
+.slot::before { counter-increment: s; content: counter(s); font-family: var(--mono); font-weight: 700; color: var(--muted); }
+.slot button { text-align: left; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.pool { display: flex; flex-wrap: wrap; gap: 8px; }
+.pool button { background: var(--panel); border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 12px; padding: 10px 12px; cursor: pointer; text-align: left; }
+.pool button:hover { border-color: var(--accent); }
+.learn p + p { margin-top: 10px; }
+.example { background: var(--panel-2); border-radius: 12px; padding: 14px; display: grid; gap: 6px; }
+.feedback { position: sticky; bottom: 0; margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 10px; border-top: 2px solid; animation: rise .25s ease; }
+.feedback.ok { background: #143a33; border-color: var(--go); }
+.feedback.no { background: #3d1a2a; border-color: var(--bad); }
+.feedback h3 { font-size: 1.1rem; }
+.feedback.ok h3 { color: var(--go); }
+.feedback.no h3 { color: var(--bad); }
+@keyframes rise { from { transform: translateY(20px); opacity: .4; } }
+.result { text-align: center; justify-items: center; }
+.bigstars { font-size: 2.6rem; letter-spacing: 6px; color: var(--xp); }
+.bigstars .off { color: var(--line); }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; }
+.tile { background: var(--panel-2); border-radius: 12px; padding: 12px 8px; display: grid; gap: 2px; text-align: center; }
+.tile b { font-family: var(--display); font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.tile span { font-size: .75rem; color: var(--muted); }
+
+/* Onboarding */
+.ob { display: grid; gap: 18px; padding-top: 12px; }
+.choices { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.choice { text-align: left; background: var(--panel); border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 14px; padding: 14px; cursor: pointer; display: grid; gap: 4px; }
+.choice small { color: var(--muted); }
+.choice[aria-pressed="true"] { border-color: var(--xp); background: #2a2546; }
+.swatches { display: flex; gap: 12px; flex-wrap: wrap; }
+.swatch { width: 44px; height: 48px; border: 0; cursor: pointer; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.swatch[aria-pressed="true"] { outline: none; transform: scale(1.2); }
+input[type="text"] { width: 100%; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 14px; font: inherit; font-size: 1.1rem; color: var(--text); }
+input[type="text"]:focus { border-color: var(--xp); outline: none; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 28px; height: 6px; border-radius: 99px; background: var(--panel-2); }
+.dots i.on { background: var(--xp); }
+
+/* Profile */
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
+.badge { display: grid; justify-items: center; gap: 6px; text-align: center; font-size: .75rem; }
+.badge .hex { width: 58px; height: 64px; font-size: 1.1rem; }
+.badge.off .hex { background: var(--panel-2); color: var(--muted); }
+.badge.off { color: var(--muted); }
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+
+/* Toasts, modal, confetti */
+.toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: grid; gap: 8px; justify-items: center; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { background: var(--panel-2); border: 1px solid var(--xp); color: var(--text); padding: 9px 14px; border-radius: 99px; font-weight: 600; font-size: .9rem; animation: rise .25s ease; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.toast b { color: var(--xp); font-family: var(--mono); }
+.modal { position: fixed; inset: 0; z-index: 25; background: rgba(10,8,24,.75); display: grid; place-items: center; padding: 20px max(16px, env(safe-area-inset-right, 0px)) 20px max(16px, env(safe-area-inset-left, 0px)); }
+.modal .card { max-width: 420px; width: 100%; text-align: center; justify-items: center; padding: 26px 20px; }
+#fx { position: fixed; inset: 0; pointer-events: none; z-index: 40; width: 100%; height: 100%; }
+.foot { text-align: center; font-size: .8rem; color: var(--muted); }
+@media (max-width: 460px) {
+  .nodes { padding-left: 0; }
+  .nodes::before { left: 26px; }
+  .node { width: 48px; height: 48px; }
+  .node.boss { width: 56px; height: 62px; }
+  .hud-stat.daily { display: none; }
+  .tiles { grid-template-columns: repeat(3, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="hud" id="hud" hidden></header>
+<main class="wrap" id="app"><p class="muted">Loading your quest…</p></main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modal"></div>
+<canvas id="fx" hidden></canvas>
+
+<script>
+(function () {
+"use strict";
+const KEY = "infinity-quest-v1";
+const RANKS = ["Zero", "Spark", "Prompt Apprentice", "Fact Checker", "Context Keeper", "Workflow Wrangler", "Agent Handler", "Builder", "Architect", "Infinity"];
+const EXP = {
+  new: { label: "Brand new", blurb: "I've barely used AI" },
+  casual: { label: "Casual", blurb: "A few chats here and there" },
+  daily: { label: "Daily user", blurb: "I use AI most days" },
+  builder: { label: "Builder", blurb: "I build things with AI" }
+};
+const MINS = { 5: { goal: 50, blurb: "One lesson, a quick win" }, 15: { goal: 120, blurb: "A lesson plus practice" }, 30: { goal: 250, blurb: "Serious progress every day" } };
+const COLORS = ["#ffc65a", "#52dcb0", "#9a8bff", "#ff8fb1", "#6cc6ff", "#ff9a5a"];
+const DAILY_POOL = [
+  { id: "lessons", label: "Finish a lesson", goal: 1 },
+  { id: "correct", label: "Get 8 answers right", goal: 8 },
+  { id: "maxCombo", label: "Hit a 5× combo", goal: 5 },
+  { id: "res", label: "Open a free resource", goal: 1 },
+  { id: "field", label: "Complete a field mission", goal: 1 },
+  { id: "tutor", label: "Copy an AI tutor prompt", goal: 1 }
+];
+const ACH = [
+  { id: "first", name: "First step", glyph: "1", desc: "Finish your first lesson" },
+  { id: "flawless", name: "Flawless", glyph: "★", desc: "Get 3 stars on a lesson" },
+  { id: "combo5", name: "On a roll", glyph: "5×", desc: "Hit a 5× combo" },
+  { id: "combo10", name: "Unstoppable", glyph: "10", desc: "Hit a 10× combo" },
+  { id: "streak3", name: "Warm streak", glyph: "3d", desc: "Learn 3 days in a row" },
+  { id: "streak7", name: "On fire", glyph: "7d", desc: "Learn 7 days in a row" },
+  { id: "boss1", name: "Boss slayer", glyph: "⚔", desc: "Beat your first boss" },
+  { id: "loot5", name: "Collector", glyph: "◆", desc: "Open 5 free resources" },
+  { id: "capstone1", name: "Shipped it", glyph: "✓", desc: "Finish a capstone project" },
+  { id: "main", name: "Main quest", glyph: "M", desc: "Clear every main-quest realm" },
+  { id: "infinity", name: "Infinity", glyph: "∞", desc: "Clear all 12 realms" }
+];
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let C = null;          // content.json
+let S = load();        // saved learner state
+let ui = { view: "home", tid: null, run: null, ob: null, confirmReset: false, promptOpen: null };
+let timerId = null;
+
+/* ---------- storage ---------- */
+function fresh() {
+  return { v: 1, profile: null, xp: 0, lessons: {}, bosses: {}, projects: {}, res: {}, tutor: {}, badges: {}, streak: { count: 0, last: null }, daily: null, stats: { answered: 0, correct: 0, bestCombo: 0 }, sound: true };
+}
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.v === 1) return Object.assign(fresh(), s); } catch (e) {}
+  return fresh();
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+/* ---------- helpers ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function today(d) { d = d || new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function dayGap(a, b) { return Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5); }
+function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+const T = (id) => C.tracks.find((t) => t.id === id);
+const L = (lid) => { const t = T(lid.slice(0, 3)); return t && t.lessons.find((l) => l.id === lid); };
+
+/* ---------- levels ---------- */
+function levelOf(xp) { let n = 1; while (xp >= 50 * n * (n + 1)) n++; return n; }
+function levelFloor(n) { return 50 * (n - 1) * n; }
+function rank(n) { return RANKS[Math.min(n - 1, RANKS.length - 1)]; }
+
+/* ---------- path & progress ---------- */
+function role() { return C.roles[S.profile.role]; }
+function path() {
+  const main = role().main, prio = main.concat(C.tracks.map((t) => t.id).filter((id) => !main.includes(id)));
+  const out = [], have = new Set();
+  while (out.length < C.tracks.length) {
+    const id = prio.find((x) => !have.has(x) && T(x).prerequisites.every((p) => have.has(p)));
+    out.push(id); have.add(id);
+  }
+  return out;
+}
+const lessonsDone = (t) => t.lessons.filter((l) => S.lessons[l.id]).length;
+const cleared = (id) => !!S.bosses[id] || lessonsDone(T(id)) === 3;
+const unlocked = (id) => T(id).prerequisites.every(cleared);
+const isMain = (id) => role().main.includes(id);
+const fastTrack = () => S.profile.exp === "daily" || S.profile.exp === "builder";
+function lessonOpen(t, i) { return unlocked(t.id) && (i === 0 || !!S.lessons[t.lessons[i - 1].id] || !!S.bosses[t.id]); }
+function bossOpen(t) { return unlocked(t.id) && (lessonsDone(t) === 3 || fastTrack()); }
+function nextUp() {
+  for (const id of path()) {
+    const t = T(id);
+    if (!unlocked(id)) continue;
+    const l = t.lessons.find((x) => !S.lessons[x.id]);
+    if (l && !S.bosses[id]) return { t, l };
+    if (!S.bosses[id]) return { t, boss: true };
+  }
+  return null;
+}
+function realmState(t) {
+  if (!unlocked(t.id)) return { label: "Locked", cls: "" };
+  if (S.bosses[t.id] && S.projects[t.id]) return { label: "Mastered", cls: "ok" };
+  if (S.bosses[t.id]) return { label: "Cleared", cls: "ok" };
+  const d = lessonsDone(t);
+  if (d === 3) return { label: "Boss ready", cls: "warn" };
+  return { label: d ? d + "/3 lessons" : "Ready", cls: "" };
+}
+
+/* ---------- daily, streak, xp, badges ---------- */
+function ensureDaily() {
+  const d = today();
+  if (S.daily && S.daily.date === d && new Set(S.daily.quests).size === 3) return;
+  const rest = DAILY_POOL.slice(1), h = hash(d), a = h % rest.length, b = (a + 1 + ((h >>> 8) % (rest.length - 1))) % rest.length;
+  S.daily ={ date: d, xp: 0, lessons: 0, correct: 0, maxCombo: 0, res: 0, field: 0, tutor: 0, quests: ["lessons", rest[a].id, rest[b].id], done: {} };
+  save();
+}
+function touchStreak() {
+  const d = today(), st = S.streak;
+  if (st.last === d) return;
+  st.count = st.last && dayGap(st.last, d) === 1 ? st.count + 1 : 1;
+  st.last = d;
+  if (st.count >= 3) award("streak3");
+  if (st.count >= 7) award("streak7");
+}
+function gain(n, why, quiet) {
+  if (n <= 0) return;
+  ensureDaily();
+  const before = levelOf(S.xp);
+  S.xp += n; S.daily.xp += n; touchStreak();
+  if (!quiet) toast("<b>+" + n + " XP</b> " + esc(why || ""));
+  const after = levelOf(S.xp);
+  if (after > before) { sfx("level"); celebrate(); showModal("level", after); }
+  save(); paintHud();
+}
+function bump(key, val) {
+  ensureDaily();
+  if (key === "maxCombo") S.daily.maxCombo = Math.max(S.daily.maxCombo, val); else S.daily[key] += val || 1;
+  for (const q of S.daily.quests) {
+    const def = DAILY_POOL.find((x) => x.id === q);
+    if (!S.daily.done[q] && S.daily[q] >= def.goal) { S.daily.done[q] = true; gain(15, "Daily quest: " + def.label); }
+  }
+  save();
+}
+function award(id) {
+  if (S.badges[id]) return;
+  S.badges[id] = Date.now(); save();
+  const a = ACH.find((x) => x.id === id), t = !a && T(id.replace("track-", ""));
+  toast("Badge unlocked: <b>" + esc(a ? a.name : t.short) + "</b>");
+}
+function checkProgressBadges() {
+  if (role().main.every((id) => cleared(id))) award("main");
+  if (C.tracks.every((t) => cleared(t.id))) award("infinity");
+}
+
+/* ---------- sound & fx ---------- */
+let ac = null;
+function sfx(kind) {
+  if (!S.sound) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const seq = { ok: [660, 880], no: [220, 160], level: [523, 659, 784, 1047], tick: [520] }[kind] || [440];
+    seq.forEach((f, i) => {
+      const o = ac.createOscillator(), g = ac.createGain(), t0 = ac.currentTime + i * 0.09;
+      o.type = kind === "no" ? "sawtooth" : "triangle"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+      o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + 0.18);
+    });
+  } catch (e) {}
+}
+function celebrate() {
+  if (reduced) return;
+  const cv = $("#fx"), ctx = cv.getContext("2d");
+  cv.hidden = false; cv.width = innerWidth; cv.height = innerHeight;
+  const P = Array.from({ length: 140 }, () => ({ x: innerWidth / 2, y: innerHeight * 0.35, vx: (Math.random() - 0.5) * 14, vy: Math.random() * -14 - 3, s: 4 + Math.random() * 6, c: COLORS[Math.floor(Math.random() * COLORS.length)], r: Math.random() * 6 }));
+  let f = 0;
+  (function tick() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    P.forEach((p) => { p.x += p.vx; p.y += p.vy; p.vy += 0.4; p.vx *= 0.99; p.r += 0.1; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); ctx.restore(); });
+    if (++f < 110) requestAnimationFrame(tick); else { cv.hidden = true; }
+  })();
+}
+function toast(html) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.innerHTML = html;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+
+/* ---------- HUD ---------- */
+function paintHud() {
+  const h = $("#hud");
+  if (!S.profile || !C) { h.hidden = true; return; }
+  h.hidden = false; ensureDaily();
+  const lv = levelOf(S.xp), lo = levelFloor(lv), hi = levelFloor(lv + 1), pct = Math.round(((S.xp - lo) / (hi - lo)) * 100);
+  const goal = MINS[S.profile.mins].goal, dp = Math.min(1, S.daily.xp / goal), circ = 2 * Math.PI * 14;
+  const streakLive = S.streak.last && dayGap(S.streak.last, today()) <= 1 ? S.streak.count : 0;
+  h.innerHTML =
+    '<div class="hud-in">' +
+    '<button class="hud-who" data-act="profile" aria-label="Open profile">' +
+    '<div class="hex" style="--c:' + S.profile.color + '">' + esc(S.profile.name[0] || "?").toUpperCase() + "</div>" +
+    '<div class="hud-lvl"><b>Lv ' + lv + " · " + esc(rank(lv)) + '</b><div class="bar" title="' + (S.xp - lo) + " / " + (hi - lo) + ' XP to next level"><i style="width:' + pct + '%"></i></div></div></button>' +
+    '<div class="hud-stat" title="Day streak"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="' + (streakLive ? "#ff9a5a" : "#3a3569") + '" d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-6 1-9.5z"/></svg>' + streakLive + "</div>" +
+    '<div class="hud-stat daily" title="Today: ' + S.daily.xp + " / " + goal + ' XP"><svg class="ring" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="14" fill="none" stroke="#29254d" stroke-width="4"/><circle cx="17" cy="17" r="14" fill="none" stroke="' + (dp >= 1 ? "#52dcb0" : "#ffc65a") + '" stroke-width="4" stroke-linecap="round" stroke-dasharray="' + circ + '" stroke-dashoffset="' + circ * (1 - dp) + '" transform="rotate(-90 17 17)"/></svg>' + S.daily.xp + "</div>" +
+    '<nav class="hud-nav"><button class="iconbtn" data-act="home" aria-current="' + (ui.view === "home") + '">Map</button></nav>' +
+    "</div>";
+}
+
+/* ---------- views ---------- */
+function render() {
+  clearInterval(timerId);
+  paintHud();
+  const app = $("#app");
+  if (!S.profile || ui.view === "onboard") app.innerHTML = vOnboard();
+  else if (ui.view === "track") app.innerHTML = vTrack(T(ui.tid));
+  else if (ui.view === "play") app.innerHTML = vPlay();
+  else if (ui.view === "profile") app.innerHTML = vProfile();
+  else app.innerHTML = vHome();
+  if (ui.view === "play" && ui.run && ui.run.kind === "boss" && ui.run.phase === "q" && !ui.run.answered) startTimer();
+  const f = app.querySelector("[data-autofocus]"); if (f) f.focus();
+}
+
+function vHome() {
+  ensureDaily();
+  const n = nextUp(), p = path(), lv = levelOf(S.xp);
+  const doneL = Object.keys(S.lessons).length;
+  let next = "";
+  if (n) {
+    const idx = p.indexOf(n.t.id) + 1;
+    next = '<section class="next"><span class="eyebrow">Next up · Stage ' + idx + " · " + esc(n.t.short) + "</span>" +
+      "<h2>" + (n.boss ? "Boss fight: " + esc(n.t.question) : esc(n.l.title)) + "</h2>" +
+      '<p class="muted">' + esc(n.t.why[S.profile.role]) + "</p>" +
+      '<div class="row"><button class="btn" data-act="' + (n.boss ? "boss" : "lesson") + '" data-id="' + (n.boss ? n.t.id : n.l.id) + '" data-autofocus>' + (n.boss ? "Fight the boss" : "Play lesson") + '</button><button class="btn ghost" data-act="track" data-id="' + n.t.id + '">Open realm</button></div></section>';
+  } else {
+    next = '<section class="next"><span class="eyebrow">All realms cleared</span><h2>You went from zero to infinity.</h2><p class="muted">Finish any capstone projects you skipped, or replay lessons for stars.</p></section>';
+  }
+  const quests = S.daily.quests.map((q) => {
+    const d = DAILY_POOL.find((x) => x.id === q), v = Math.min(S.daily[q], d.goal), ok = S.daily.done[q];
+    return '<div class="quest' + (ok ? " done" : "") + '"><i class="tick" aria-hidden="true">' + (ok ? "✓" : "") + "</i><span>" + esc(d.label) + '</span><small class="mono muted">' + (ok ? "+15" : v + "/" + d.goal) + "</small></div>";
+  }).join("");
+  const goal = MINS[S.profile.mins].goal;
+  return '<div class="hero"><span class="eyebrow">' + esc(role().label) + " · " + doneL + "/36 lessons</span><h1>Hi " + esc(S.profile.name) + ".</h1></div>" + next +
+    '<section class="card"><div class="row" style="justify-content:space-between"><h3>Today\'s quests</h3><span class="mono muted">' + S.daily.xp + " / " + goal + " XP goal</span></div>" +
+    '<div class="bar"><i style="width:' + Math.min(100, (S.daily.xp / goal) * 100) + '%"></i></div><div class="quests">' + quests + "</div></section>" +
+    '<section class="trail" aria-label="Your quest map"><div class="row" style="justify-content:space-between"><h2>Your quest map</h2><span class="chip main">Main quest = picked for you</span></div>' +
+    p.map((id, i) => vRealm(T(id), i + 1, n && n.t.id === id)).join("") + "</section>" +
+    '<p class="foot">Lessons and free resources from <a href="' + esc(C.source.url) + '" target="_blank" rel="noopener">' + esc(C.source.name) + "</a> (checked " + esc(C.source.checked) + "). Progress is saved in this browser only.</p>";
+}
+
+function vRealm(t, stage, isNext) {
+  const st = realmState(t), open = unlocked(t.id), n = nextUp();
+  const nodes = t.lessons.map((l, i) => {
+    const done = S.lessons[l.id], can = lessonOpen(t, i), cur = n && n.l && n.l.id === l.id;
+    const cls = done ? "done" : cur ? "current" : can ? "open" : "locked";
+    return '<button class="node ' + cls + '" data-act="lesson" data-id="' + l.id + '"' + (can ? "" : " disabled") + ' aria-label="Lesson ' + (i + 1) + ": " + esc(l.title) + (done ? ", " + done.stars + " stars" : "") + '">' + (i + 1) +
+      (done ? '<span class="stars">' + "★".repeat(done.stars) + "</span>" : "") + "</button>";
+  }).join("");
+  const bo = bossOpen(t), bd = S.bosses[t.id];
+  const boss = '<button class="node boss ' + (bd ? "done" : bo ? "open" : "locked") + '" data-act="boss" data-id="' + t.id + '"' + (bo ? "" : " disabled") + ' aria-label="Boss fight' + (bd ? ", beaten" : "") + '">BOSS</button>';
+  const needs = open ? "" : '<small>Needs: ' + t.prerequisites.filter((p) => !cleared(p)).map((p) => esc(T(p).short)).join(", ") + "</small>";
+  return '<article class="realm' + (open ? "" : " locked") + (isNext ? " isnext" : "") + '">' +
+    '<button class="realm-head" data-act="track" data-id="' + t.id + '"><span class="stage">' + String(stage).padStart(2, "0") + '</span><span class="realm-title"><h3>' + esc(t.short) + "</h3><small>" + esc(t.question) + "</small>" + needs + "</span>" +
+    '<span class="row" style="gap:6px;justify-content:flex-end">' + (isMain(t.id) ? '<span class="chip main">Main</span>' : "") + '<span class="chip ' + st.cls + '">' + st.label + "</span></span></button>" +
+    '<div class="nodes">' + nodes + boss + "</div></article>";
+}
+
+function tutorPrompt(t) {
+  const p = S.profile, r = role();
+  return "You are my patient AI tutor. About me: my name is " + p.name + ", I'm a " + r.label.toLowerCase() + ", and my AI experience is \"" + EXP[p.exp].label.toLowerCase() + "\". I have about " + p.mins + " minutes a day." +
+    (p.zero ? " I'm on a zero budget: use only free tools and don't ask me to create accounts or buy plans." : "") +
+    "\n\nTopic: " + t.title + ". " + t.description + "\nLessons: " + t.lessons.map((l) => l.title).join("; ") + "." +
+    "\n\nHow to teach me: " + t.tutor + "\n\nUse examples from " + r.domain + ". Ask one question at a time and wait for my answer. Keep score, and finish with a 3-question quiz.";
+}
+
+function vTrack(t) {
+  const p = path(), stage = p.indexOf(t.id) + 1, open = unlocked(t.id), st = realmState(t);
+  const lessons = t.lessons.map((l, i) => {
+    const d = S.lessons[l.id], can = lessonOpen(t, i);
+    return '<button class="item" data-act="lesson" data-id="' + l.id + '"' + (can ? "" : " disabled") + '><span class="num' + (d ? " done" : "") + '">' + (i + 1) + '</span><span class="t"><b>' + esc(l.title) + "</b><small>" + (d ? "★".repeat(d.stars) + "☆".repeat(3 - d.stars) + (d.field ? " · field mission done" : "") : can ? "3 challenges + a field mission" : "Locked") + '</small></span><span class="mono muted">' + (d ? "Replay" : can ? "Play" : "") + "</span></button>";
+  }).join("");
+  const bo = bossOpen(t), bd = S.bosses[t.id], early = bo && lessonsDone(t) < 3;
+  const proj = S.projects[t.id];
+  const loot = t.core.map((r) => '<a class="item" href="' + esc(r.url) + '" target="_blank" rel="noopener" data-act="loot" data-id="' + r.id + '"><span class="num' + (S.res[r.id] ? " done" : "") + '">' + esc(r.kind[0]) + '</span><span class="t"><b>' + esc(r.title) + "</b><small>" + esc(r.kind) + " · " + esc(r.by) + " · " + esc(r.mins) + '</small></span><span class="mono muted">' + (S.res[r.id] ? "Opened" : "+5 XP") + "</span></a>").join("");
+  return '<button class="back" data-act="home">← Back to map</button>' +
+    '<div class="hero"><span class="eyebrow">Stage ' + stage + " of 12 · " + t.hours[0] + "–" + t.hours[1] + " hours with practice</span><h1>" + esc(t.title) + '</h1><div class="row">' + (isMain(t.id) ? '<span class="chip main">Main quest</span>' : '<span class="chip">Side quest</span>') + '<span class="chip ' + st.cls + '">' + st.label + "</span></div></div>" +
+    '<p class="why">' + esc(t.why[S.profile.role]) + "</p>" +
+    (open ? "" : '<div class="card"><h3>Locked</h3><p class="muted">Clear ' + t.prerequisites.filter((x) => !cleared(x)).map((x) => esc(T(x).short)).join(" and ") + " first.</p></div>") +
+    '<section class="card"><h3>Lessons</h3><div class="list">' + lessons + "</div></section>" +
+    '<section class="card"><div class="row" style="justify-content:space-between"><h3>Boss fight</h3>' + (bd ? '<span class="chip ok">Beaten</span>' : "") + '</div><p class="muted">All 9 challenges from this realm, shuffled. 3 hearts, 30 seconds each. Win for +100 XP and the ' + esc(t.short) + " badge.</p>" +
+    (early ? '<p><span class="chip main">Fast track</span> You said you use AI often, so you can fight the boss now. Win and the whole realm counts as cleared.</p>' : "") +
+    '<button class="btn danger" data-act="boss" data-id="' + t.id + '"' + (bo ? "" : " disabled") + ">" + (bd ? "Rematch" : "Fight the boss") + "</button></section>" +
+    '<section class="card"><div class="row" style="justify-content:space-between"><h3>Capstone project</h3>' + (proj ? '<span class="chip ok">Done</span>' : '<span class="chip main">+150 XP</span>') + "</div><p>" + esc(t.project) + '</p><div class="checks">' +
+    t.checks.map((c, i) => '<label><input type="checkbox" id="cap-' + t.id + "-" + i + '" data-act="capcheck"' + (proj ? " checked disabled" : "") + "><span>" + esc(c) + "</span></label>").join("") + "</div>" +
+    (proj ? "" : '<button class="btn go" data-act="capstone" data-id="' + t.id + '" id="capbtn" disabled>I finished it</button>') + "</section>" +
+    '<section class="card"><h3>Free loot</h3><p class="muted">Open the core resources. Each one is worth 5 XP the first time.</p><div class="list">' + loot + "</div></section>" +
+    '<section class="card"><div class="row" style="justify-content:space-between"><h3>Your AI tutor</h3>' + (S.tutor[t.id] ? '<span class="chip ok">Used</span>' : '<span class="chip main">+5 XP</span>') + '</div><p class="muted">A prompt written for you. Paste it into any free AI chat and practise this realm.</p><pre class="prompt" id="tutor-' + t.id + '">' + esc(tutorPrompt(t)) + '</pre><button class="btn ghost" data-act="tutor" data-id="' + t.id + '">Copy tutor prompt</button></section>' +
+    "<details class=\"card\"" + (S.profile.zero ? " open" : "") + "><summary>Zero-budget route</summary><p>" + esc(t.zero) + "</p></details>" +
+    '<p class="foot">Practice files for the field missions are on <a href="' + esc(C.source.url) + "#track/" + t.id + '" target="_blank" rel="noopener">the original track page</a>.</p>';
+}
+
+/* ---------- player ---------- */
+function startLesson(lid) {
+  const l = L(lid), t = T(lid.slice(0, 3)), replay = !!S.lessons[lid];
+  ui.run = { kind: "lesson", tid: t.id, lid, phase: "learn", queue: l.quiz.map((q, i) => ({ i, retry: false })), pos: 0, first: {}, combo: 0, best: 0, xp: 0, replay, hint: false, st: {} };
+  ui.view = "play"; render(); scrollTo(0, 0);
+}
+function startBoss(tid) {
+  const t = T(tid), items = [];
+  t.lessons.forEach((l) => l.quiz.forEach((q) => items.push(q)));
+  ui.run = { kind: "boss", tid, phase: "q", items: shuffle(items), pos: 0, hearts: 3, combo: 0, best: 0, xp: 0, st: {}, answered: false, left: 30 };
+  ui.view = "play"; render(); scrollTo(0, 0);
+}
+function curQ() {
+  const r = ui.run;
+  if (r.kind === "boss") return r.items[r.pos];
+  return L(r.lid).quiz[r.queue[r.pos].i];
+}
+
+function vPlay() {
+  const r = ui.run, t = T(r.tid);
+  if (r.kind === "lesson") {
+    const l = L(r.lid);
+    if (r.phase === "learn") {
+      return '<div class="player">' + ptop(0) + '<span class="eyebrow">' + esc(t.short) + " · Lesson " + (t.lessons.indexOf(l) + 1) + "</span><h1>" + esc(l.title) + '</h1><div class="card learn"><span class="qtype">Learn</span><p>' + esc(l.teach) + '</p></div><div class="example"><span class="qtype">Example</span><p>' + esc(l.example) + "</p></div>" +
+        '<button class="btn wide" data-act="begin" data-autofocus>Start the challenge</button></div>';
+    }
+    if (r.phase === "field") {
+      return '<div class="player">' + ptop(1) + '<span class="qtype">Field mission · optional · +30 XP</span><h2>Try it for real</h2><div class="card"><p>' + esc(l.exercise) + '</p><p class="muted"><b>You pass if:</b> ' + esc(l.check) + '</p><details><summary>Show a model answer</summary><p style="margin-top:8px">' + esc(l.answer) + "</p></details></div>" +
+        '<p class="muted">Practice files are on <a href="' + esc(C.source.url) + "#track/" + t.id + '" target="_blank" rel="noopener">the original track page</a>. No files? Use the AI tutor prompt from this realm instead.</p>' +
+        '<div class="row"><button class="btn go" data-act="field" data-v="1" data-autofocus>I did it</button><button class="btn ghost" data-act="field" data-v="0">Skip for now</button></div></div>';
+    }
+    if (r.phase === "done") return vLessonDone();
+  } else {
+    if (r.phase === "win" || r.phase === "lose") return vBossDone();
+  }
+  return vQuestion();
+}
+function ptop(fixed) {
+  const r = ui.run;
+  let segs;
+  if (r.kind === "boss") segs = r.items.map((_, i) => "<i class=\"" + (i < r.pos || (i === r.pos && r.answered) ? "on" : "") + "\"></i>").join("");
+  else { const n = 3, ok = Object.values(r.first).filter((v) => v).length, done = r.phase === "done" || r.phase === "field" || fixed ? n : Object.keys(r.first).length; segs = Array.from({ length: n }, (_, i) => "<i class=\"" + (i < done ? "on" : "") + "\"></i>").join(""); }
+  const right = r.kind === "boss" ? '<span class="hearts" aria-label="' + r.hearts + ' hearts left">' + "♥".repeat(r.hearts) + '<span style="color:#3a3569">' + "♥".repeat(3 - r.hearts) + "</span></span>" : '<span class="combo' + (r.combo >= 3 ? " hot" : "") + '">' + (r.combo >= 2 ? r.combo + "× combo" : "") + "</span>";
+  return '<div class="ptop"><button class="x" data-act="quit" aria-label="Quit">✕</button><div class="segs">' + segs + "</div>" + right + "</div>";
+}
+function vQuestion() {
+  const r = ui.run, q = curQ(), st = r.st, t = T(r.tid);
+  let body = "";
+  const done = r.kind === "boss" ? r.answered : st.result != null;
+  if (q.t === "mcq") {
+    body = '<div class="opts">' + q.o.map((o, i) => {
+      let cls = "";
+      if (done) { if (i === q.a) cls = " right"; else if (i === st.pick) cls = " wrong"; }
+      return '<button class="opt' + cls + '" data-act="pick" data-i="' + i + '"' + (done ? " disabled" : "") + "><kbd>" + (i + 1) + "</kbd><span>" + esc(o) + "</span></button>";
+    }).join("") + "</div>";
+  } else if (q.t === "tf") {
+    const lab = ["Myth", "Fact"];
+    body = '<div class="tf">' + lab.map((x, i) => {
+      let cls = ""; const val = i === 1;
+      if (done) { if (val === q.a) cls = " right"; else if (st.pick === i) cls = " wrong"; }
+      return '<button class="opt' + cls + '" data-act="pick" data-i="' + i + '"' + (done ? " disabled" : "") + ">" + x + "</button>";
+    }).join("") + "</div>";
+  } else {
+    if (!st.shuf) { st.shuf = shuffle(q.o.map((_, i) => i)); if (st.shuf.every((v, i) => v === i)) st.shuf.reverse(); st.picked = []; }
+    const pool = st.shuf.filter((i) => !st.picked.includes(i));
+    body = '<div class="slots">' + q.o.map((_, k) => {
+      const i = st.picked[k];
+      return '<div class="slot">' + (i == null ? '<span class="muted">…</span>' : '<button data-act="unpick" data-i="' + i + '"' + (done ? " disabled" : "") + ">" + esc(q.o[i]) + "</button>") + "</div>";
+    }).join("") + "</div>" +
+      (done ? "" : '<div class="pool">' + pool.map((i) => '<button data-act="place" data-i="' + i + '">' + esc(q.o[i]) + "</button>").join("") + "</div>" +
+        '<button class="btn wide" data-act="checkorder"' + (st.picked.length === q.o.length ? " data-autofocus" : " disabled") + ">Check order</button>");
+  }
+  const label = q.t === "mcq" ? "Choose one" : q.t === "tf" ? "Myth or fact?" : "Tap to put these in order";
+  let hint = "";
+  if (r.kind === "lesson" && !done) {
+    const l = L(r.lid);
+    hint = r.hint ? '<div class="example"><span class="qtype">Peek</span><p>' + esc(l.teach) + "</p></div>" : '<button class="back" data-act="hint">Peek at the lesson (half XP)</button>';
+  }
+  const timer = r.kind === "boss" && !done ? '<div class="timer"><i id="tbar" style="width:' + (r.left / 30) * 100 + '%"></i></div>' : "";
+  let fb = "";
+  if (done) {
+    const ok = r.kind === "boss" ? st.ok : st.result;
+    const extra = !ok && q.t === "order" ? '<ol style="margin:0;padding-left:20px">' + q.o.map((o) => "<li>" + esc(o) + "</li>").join("") + "</ol>" : "";
+    const head = ok ? (st.gained ? "Correct! +" + st.gained + " XP" : "Correct!") : st.timeout ? "Time's up" : "Not quite";
+    const note = !ok && r.kind === "lesson" ? '<p class="muted">This one comes back at the end of the lesson.</p>' : "";
+    fb = '<div class="feedback ' + (ok ? "ok" : "no") + '" role="status"><h3>' + head + "</h3><p>" + esc(q.w) + "</p>" + extra + note + '<button class="btn ' + (ok ? "go" : "danger") + ' wide" data-act="continue" data-autofocus>Continue</button></div>';
+  }
+  const sub = r.kind === "boss" ? "Boss · " + esc(t.short) + " · " + (r.pos + 1) + "/9" : esc(t.short) + (r.queue[r.pos].retry ? " · second try" : "");
+  return '<div class="player">' + ptop() + timer + '<span class="qtype">' + sub + " · " + label + '</span><p class="qtext">' + esc(q.q) + "</p>" + body + hint + fb + "</div>";
+}
+
+function answer(ok) {
+  const r = ui.run, q = curQ(), st = r.st;
+  S.stats.answered++;
+  if (ok) { S.stats.correct++; bump("correct"); }
+  if (r.kind === "boss") {
+    clearInterval(timerId);
+    r.answered = true; st.ok = ok;
+    if (ok) { r.combo++; } else { r.combo = 0; r.hearts--; }
+  } else {
+    const item = r.queue[r.pos];
+    st.result = ok;
+    if (!(item.i in r.first)) r.first[item.i] = ok;
+    if (ok) {
+      r.combo++;
+      if (!item.retry) {
+        let pts = r.replay ? 2 : 10;
+        if (r.hint) pts = Math.ceil(pts / 2);
+        if (r.combo >= 3) pts = Math.round(pts * 1.5);
+        st.gained = pts; r.xp += pts; gain(pts, "", true);
+      }
+    } else { r.combo = 0; r.queue.push({ i: item.i, retry: true }); }
+  }
+  r.best = Math.max(r.best, r.combo);
+  S.stats.bestCombo = Math.max(S.stats.bestCombo, r.combo);
+  bump("maxCombo", r.combo);
+  if (r.combo >= 5) award("combo5");
+  if (r.combo >= 10) award("combo10");
+  sfx(ok ? "ok" : "no");
+  save(); render();
+}
+function cont() {
+  const r = ui.run;
+  if (r.kind === "boss") {
+    if (r.hearts <= 0) { r.phase = "lose"; sfx("no"); }
+    else if (r.pos + 1 >= r.items.length) { winBoss(); }
+    else { r.pos++; r.answered = false; r.st = {}; r.left = 30; }
+  } else {
+    r.pos++; r.st = {}; r.hint = false;
+    if (r.pos >= r.queue.length) finishQuiz();
+  }
+  render(); scrollTo(0, 0);
+}
+function finishQuiz() {
+  const r = ui.run, stars = Math.max(1, Object.values(r.first).filter(Boolean).length);
+  r.stars = stars;
+  const prev = S.lessons[r.lid];
+  S.lessons[r.lid] = { stars: Math.max(stars, prev ? prev.stars : 0), field: prev ? prev.field : false, at: Date.now() };
+  if (!r.replay) { r.xp += 20; gain(20, "Lesson complete"); bump("lessons"); }
+  if (stars === 3 && !r.replay) { r.xp += 10; gain(10, "Perfect lesson"); }
+  if (stars === 3) award("flawless");
+  award("first");
+  checkProgressBadges();
+  r.phase = S.lessons[r.lid].field ? "done" : "field";
+  if (r.phase === "done") { sfx("level"); }
+  save();
+}
+function winBoss() {
+  const r = ui.run, first = !S.bosses[r.tid];
+  r.phase = "win";
+  S.bosses[r.tid] = Date.now();
+  if (first) { r.xp = 100 + r.hearts * 10; gain(r.xp, "Boss defeated"); award("boss1"); award("track-" + r.tid); }
+  else { r.xp = 10; gain(10, "Rematch won"); }
+  checkProgressBadges(); celebrate(); sfx("level"); save();
+}
+function vLessonDone() {
+  const r = ui.run, t = T(r.tid), l = L(r.lid), i = t.lessons.indexOf(l), nl = t.lessons[i + 1];
+  const nextBtn = nl ? '<button class="btn" data-act="lesson" data-id="' + nl.id + '" data-autofocus>Next lesson</button>' : bossOpen(t) && !S.bosses[t.id] ? '<button class="btn danger" data-act="boss" data-id="' + t.id + '" data-autofocus>Fight the boss</button>' : '<button class="btn" data-act="home" data-autofocus>Back to map</button>';
+  return '<div class="player"><div class="card result"><span class="eyebrow">Lesson complete</span><div class="bigstars" aria-label="' + r.stars + ' of 3 stars">' + "★".repeat(r.stars) + '<span class="off">' + "★".repeat(3 - r.stars) + "</span></div><h2>" + esc(l.title) + "</h2>" +
+    '<div class="tiles"><div class="tile"><b>+' + r.xp + "</b><span>XP earned</span></div><div class=\"tile\"><b>" + Object.values(r.first).filter(Boolean).length + "/3</b><span>first try</span></div><div class=\"tile\"><b>" + r.best + "×</b><span>best combo</span></div></div>" +
+    (r.replay ? '<p class="muted">Replays earn a little XP and can raise your stars.</p>' : "") +
+    '<div class="row" style="justify-content:center">' + nextBtn + '<button class="btn ghost" data-act="track" data-id="' + t.id + '">Realm page</button></div></div></div>';
+}
+function vBossDone() {
+  const r = ui.run, t = T(r.tid);
+  if (r.phase === "lose") {
+    return '<div class="player"><div class="card result"><span class="eyebrow">Out of hearts</span><h1>The boss wins this round.</h1><p class="muted">You got ' + r.pos + " of 9 before running out. Replay a lesson for a refresher, or try again now.</p>" +
+      '<div class="row" style="justify-content:center"><button class="btn danger" data-act="boss" data-id="' + t.id + '" data-autofocus>Try again</button><button class="btn ghost" data-act="track" data-id="' + t.id + '">Review lessons</button></div></div></div>';
+  }
+  return '<div class="player"><div class="card result"><span class="eyebrow">Boss defeated</span><div class="hex big" style="--c:var(--go)">' + t.id.slice(1) + "</div><h1>" + esc(t.short) + " cleared</h1>" +
+    '<div class="tiles"><div class="tile"><b>+' + r.xp + '</b><span>XP</span></div><div class="tile"><b>' + r.hearts + '/3</b><span>hearts left</span></div><div class="tile"><b>' + r.best + "×</b><span>best combo</span></div></div>" +
+    "<p>Legendary quest unlocked: <b>" + esc(t.project) + "</b></p>" +
+    '<div class="row" style="justify-content:center"><button class="btn" data-act="home" data-autofocus>Back to map</button><button class="btn ghost" data-act="track" data-id="' + t.id + '">See capstone</button></div></div></div>';
+}
+function startTimer() {
+  const r = ui.run;
+  clearInterval(timerId);
+  timerId = setInterval(() => {
+    if (ui.view !== "play" || !ui.run || ui.run !== r || r.answered) { clearInterval(timerId); return; }
+    r.left = Math.max(0, r.left - 0.1);
+    const b = $("#tbar"); if (b) b.style.width = (r.left / 30) * 100 + "%";
+    if (r.left <= 0) { r.st.timeout = true; answer(false); }
+  }, 100);
+}
+
+/* ---------- onboarding ---------- */
+function vOnboard() {
+  const o = ui.ob || (ui.ob = S.profile ? Object.assign({ step: 0 }, S.profile) : { step: 0, name: "", role: null, exp: null, mins: 15, zero: true, color: COLORS[0] });
+  const steps = 6, dots = '<div class="dots" aria-hidden="true">' + Array.from({ length: steps }, (_, i) => '<i class="' + (i <= o.step ? "on" : "") + '"></i>').join("") + "</div>";
+  const nav = (ok) => '<div class="row">' + (o.step ? '<button class="btn ghost" data-act="obback">Back</button>' : "") + '<button class="btn" data-act="obnext"' + (ok ? "" : " disabled") + ">" + (o.step === steps - 1 ? "Build my quest" : "Next") + "</button></div>";
+  let inner = "";
+  if (o.step === 0) {
+    inner = '<span class="eyebrow">Infinity Quest · free AI course, played as a game</span><h1>Learn AI by playing it.</h1><p class="muted">12 realms, 36 lessons, 108 challenges and 12 bosses, built from the free curriculum at ' + esc(C.source.name) + ". Answer 5 quick questions and we'll plan a route that fits you.</p>" +
+      '<label for="ob-name"><b>What should we call you?</b></label><input type="text" id="ob-name" maxlength="24" autocomplete="given-name" placeholder="Your first name" value="' + esc(o.name) + '" data-autofocus>' + nav(o.name.trim().length > 0);
+  } else if (o.step === 1) {
+    inner = "<h2>What will you use AI for?</h2><p class=\"muted\">This picks your main quests and the examples your tutor uses.</p><div class=\"choices\">" +
+      Object.entries(C.roles).map(([k, r]) => '<button class="choice" data-act="obset" data-k="role" data-v="' + k + '" aria-pressed="' + (o.role === k) + '"><b>' + esc(r.label) + "</b><small>" + esc(r.blurb) + "</small></button>").join("") + "</div>" + nav(!!o.role);
+  } else if (o.step === 2) {
+    inner = "<h2>How much have you used AI?</h2><p class=\"muted\">Daily users and builders can skip ahead by beating a realm's boss.</p><div class=\"choices\">" +
+      Object.entries(EXP).map(([k, e]) => '<button class="choice" data-act="obset" data-k="exp" data-v="' + k + '" aria-pressed="' + (o.exp === k) + '"><b>' + e.label + "</b><small>" + e.blurb + "</small></button>").join("") + "</div>" + nav(!!o.exp);
+  } else if (o.step === 3) {
+    inner = "<h2>How much time a day?</h2><p class=\"muted\">This sets your daily XP goal. Change it any time.</p><div class=\"choices\">" +
+      Object.entries(MINS).map(([k, m]) => '<button class="choice" data-act="obset" data-k="mins" data-v="' + k + '" aria-pressed="' + (+o.mins === +k) + '"><b>' + k + " min · " + m.goal + " XP</b><small>" + m.blurb + "</small></button>").join("") + "</div>" + nav(true);
+  } else if (o.step === 4) {
+    inner = "<h2>Zero-budget mode?</h2><p class=\"muted\">Every resource here is free. Zero-budget mode also opens the no-account route on each realm and tells your AI tutor not to suggest paid plans.</p><div class=\"choices\">" +
+      '<button class="choice" data-act="obset" data-k="zero" data-v="1" aria-pressed="' + !!o.zero + '"><b>Yes, keep it free</b><small>No new accounts, no paid plans</small></button>' +
+      '<button class="choice" data-act="obset" data-k="zero" data-v="0" aria-pressed="' + !o.zero + '"><b>No, I have tools already</b><small>Use what I have access to</small></button></div>' + nav(true);
+  } else {
+    const r = C.roles[o.role], tmp = S.profile; S.profile = o; const p = path(); S.profile = tmp;
+    inner = "<h2>Pick your colour</h2><div class=\"swatches\">" + COLORS.map((c) => '<button class="swatch" style="background:' + c + '" data-act="obset" data-k="color" data-v="' + c + '" aria-pressed="' + (o.color === c) + '" aria-label="Colour ' + c + '"></button>').join("") + "</div>" +
+      '<div class="card"><div class="row"><div class="hex big" style="--c:' + o.color + '">' + esc(o.name.trim()[0] || "?").toUpperCase() + '</div><div style="min-width:0"><h3>' + esc(o.name.trim()) + '</h3><p class="muted">' + esc(r.label) + " · " + EXP[o.exp].label + " · " + o.mins + " min a day</p></div></div>" +
+      "<p><b>Your main quest, in order:</b></p><ol style=\"margin:0;padding-left:22px\">" + p.filter((id) => r.main.includes(id)).map((id) => "<li>" + esc(T(id).short) + ' <span class="muted">· ' + esc(T(id).why[o.role]) + "</span></li>").join("") + "</ol>" +
+      '<p class="muted">The other ' + (12 - r.main.length) + " realms stay open as side quests.</p></div>" + nav(true);
+  }
+  return '<div class="ob">' + dots + inner + "</div>";
+}
+
+/* ---------- profile ---------- */
+function vProfile() {
+  const lv = levelOf(S.xp), acc = S.stats.answered ? Math.round((S.stats.correct / S.stats.answered) * 100) : 0;
+  const tiles = [[S.xp, "total XP"], [lv, "level"], [Object.keys(S.lessons).length + "/36", "lessons"], [Object.keys(S.bosses).length + "/12", "bosses"], [acc + "%", "accuracy"], [S.stats.bestCombo + "×", "best combo"]];
+  const tb = path().map((id) => { const t = T(id), on = S.badges["track-" + id]; return '<div class="badge' + (on ? "" : " off") + '"><div class="hex" style="--c:' + (on ? "var(--go)" : "") + '">' + id.slice(1) + "</div>" + esc(t.short) + "</div>"; }).join("");
+  const ab = ACH.map((a) => { const on = S.badges[a.id]; return '<div class="badge' + (on ? "" : " off") + '" title="' + esc(a.desc) + '"><div class="hex" style="--c:' + (on ? "var(--xp)" : "") + '">' + a.glyph + "</div><b>" + esc(a.name) + "</b><small class=\"muted\">" + esc(a.desc) + "</small></div>"; }).join("");
+  return '<button class="back" data-act="home">← Back to map</button>' +
+    '<div class="row"><div class="hex big" style="--c:' + S.profile.color + '">' + esc(S.profile.name[0]).toUpperCase() + '</div><div style="min-width:0"><h1>' + esc(S.profile.name) + '</h1><p class="muted">Level ' + lv + " " + esc(rank(lv)) + " · " + esc(role().label) + " · " + EXP[S.profile.exp].label + "</p></div></div>" +
+    '<div class="statgrid">' + tiles.map((x) => '<div class="tile"><b>' + x[0] + "</b><span>" + x[1] + "</span></div>").join("") + "</div>" +
+    '<section class="card"><h3>Achievements</h3><div class="badges">' + ab + "</div></section>" +
+    '<section class="card"><h3>Realm badges</h3><p class="muted">Beat a realm\'s boss to earn its badge.</p><div class="badges">' + tb + "</div></section>" +
+    '<section class="card"><h3>Settings</h3><div class="row"><button class="btn ghost" data-act="editprofile">Edit my answers</button><button class="btn ghost" data-act="sound">Sound: ' + (S.sound ? "on" : "off") + "</button></div>" +
+    (ui.confirmReset ? '<div class="card" style="border-color:var(--bad)"><p><b>Erase all progress?</b> Your XP, stars, badges and streak will be deleted from this browser. This can\'t be undone.</p><div class="row"><button class="btn danger" data-act="reset">Erase everything</button><button class="btn ghost" data-act="cancelreset">Keep my progress</button></div></div>' : '<button class="back" data-act="askreset" style="color:var(--bad)">Reset progress…</button>') +
+    "</section>";
+}
+
+/* ---------- modal ---------- */
+function showModal(kind, lv) {
+  const m = $("#modal");
+  m.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-label="Level up"><div class="card"><span class="eyebrow">Level up</span><div class="hex big" style="--c:var(--xp)">' + lv + "</div><h2>You're now a " + esc(rank(lv)) + '</h2><p class="muted">' + (levelFloor(lv + 1) - S.xp) + ' XP to level ' + (lv + 1) + '.</p><button class="btn" data-act="closemodal" id="modalok">Keep going</button></div></div>';
+  setTimeout(() => { const b = $("#modalok"); if (b) b.focus(); }, 30);
+}
+
+/* ---------- actions ---------- */
+const A = {
+  home() { ui.view = "home"; ui.run = null; render(); scrollTo(0, 0); },
+  profile() { ui.view = "profile"; ui.confirmReset = false; render(); scrollTo(0, 0); },
+  track(d) { ui.view = "track"; ui.tid = d.id; ui.run = null; render(); scrollTo(0, 0); },
+  lesson(d) { startLesson(d.id); },
+  boss(d) { startBoss(d.id); },
+  quit() { const tid = ui.run.tid; clearInterval(timerId); A.track({ id: tid }); },
+  begin() { ui.run.phase = "q"; render(); },
+  hint() { ui.run.hint = true; render(); },
+  pick(d) {
+    const q = curQ(), i = +d.i; ui.run.st.pick = i;
+    answer(q.t === "mcq" ? i === q.a : (i === 1) === q.a);
+  },
+  place(d) { ui.run.st.picked.push(+d.i); sfx("tick"); render(); },
+  unpick(d) { const st = ui.run.st; st.picked = st.picked.filter((x) => x !== +d.i); render(); },
+  checkorder() { const st = ui.run.st; answer(st.picked.every((v, i) => v === i)); },
+  continue() { cont(); },
+  field(d) {
+    const r = ui.run;
+    if (d.v === "1") { S.lessons[r.lid].field = true; r.xp += 30; gain(30, "Field mission"); bump("field"); }
+    r.phase = "done"; sfx("level"); save(); render(); scrollTo(0, 0);
+  },
+  loot(d) {
+    if (!S.res[d.id]) { S.res[d.id] = Date.now(); gain(5, "Resource opened"); bump("res"); if (Object.keys(S.res).length >= 5) award("loot5"); setTimeout(render, 50); }
+    return true;
+  },
+  tutor(d) {
+    const t = T(d.id), text = tutorPrompt(t), done = () => {
+      toast("Tutor prompt copied. Paste it into any AI chat.");
+      if (!S.tutor[t.id]) { S.tutor[t.id] = Date.now(); gain(5, "Tutor summoned"); bump("tutor"); render(); }
+    };
+    const fallback = () => { const el = $("#tutor-" + t.id); const s = getSelection(), rg = document.createRange(); rg.selectNodeContents(el); s.removeAllRanges(); s.addRange(rg); toast("Prompt selected. Press Ctrl+C or ⌘C to copy."); if (!S.tutor[t.id]) { S.tutor[t.id] = Date.now(); gain(5, "Tutor summoned"); bump("tutor"); } };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+  },
+  capcheck() { const all = [...document.querySelectorAll('[data-act="capcheck"]')]; const b = $("#capbtn"); if (b) b.disabled = !all.every((x) => x.checked); return true; },
+  capstone(d) { S.projects[d.id] = Date.now(); gain(150, "Capstone shipped"); award("capstone1"); celebrate(); save(); render(); },
+  obset(d) {
+    const o = ui.ob; o[d.k] = d.k === "mins" ? +d.v : d.k === "zero" ? d.v === "1" : d.v;
+    if (d.k === "role" || d.k === "exp") { o.step++; }
+    render();
+  },
+  obnext() {
+    const o = ui.ob;
+    if (o.step === 0) { const n = $("#ob-name"); o.name = n ? n.value.trim().slice(0, 24) : o.name; if (!o.name) return; }
+    if (o.step < 5) { o.step++; render(); return; }
+    const first = !S.profile;
+    S.profile = { name: o.name.trim(), role: o.role, exp: o.exp, mins: +o.mins, zero: !!o.zero, color: o.color };
+    ui.ob = null; ui.view = "home"; save(); ensureDaily(); render(); scrollTo(0, 0);
+    if (first) { celebrate(); toast("Your quest map is ready, <b>" + esc(S.profile.name) + "</b>"); }
+  },
+  obback() { ui.ob.step = Math.max(0, ui.ob.step - 1); render(); },
+  editprofile() { ui.ob = null; ui.view = "onboard"; ui.ob = Object.assign({ step: 0 }, S.profile); render(); },
+  sound() { S.sound = !S.sound; save(); render(); if (S.sound) sfx("ok"); },
+  askreset() { ui.confirmReset = true; render(); },
+  cancelreset() { ui.confirmReset = false; render(); },
+  reset() { S = fresh(); save(); ui = { view: "home", tid: null, run: null, ob: null, confirmReset: false }; render(); scrollTo(0, 0); },
+  closemodal() { $("#modal").innerHTML = ""; }
+};
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el || el.disabled) return;
+  const fn = A[el.dataset.act];
+  if (!fn) return;
+  const keep = fn(el.dataset, e);
+  if (keep !== true && el.tagName === "A") e.preventDefault();
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "ob-name" && ui.ob) {
+    ui.ob.name = e.target.value;
+    const b = document.querySelector('[data-act="obnext"]'); if (b) b.disabled = !e.target.value.trim();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if ($("#modal").innerHTML && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); A.closemodal(); return; }
+  if (e.target.tagName === "INPUT") { if (e.key === "Enter" && e.target.id === "ob-name") { e.preventDefault(); A.obnext(); } return; }
+  if (ui.view !== "play" || !ui.run) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 4) { const b = document.querySelector('[data-act="pick"][data-i="' + (n - 1) + '"]:not(:disabled)'); if (b) { e.preventDefault(); b.click(); } }
+  const lk = e.key.toLowerCase();
+  if (lk === "m" || lk === "f") { const b = document.querySelector('.tf [data-act="pick"][data-i="' + (lk === "f" ? 1 : 0) + '"]:not(:disabled)'); if (b) b.click(); }
+});
+
+/* ---------- boot ---------- */
+function start() {
+  fetch("content.json").then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((data) => {
+    C = data;
+    if (!S.profile) ui.view = "onboard";
+    ensureDaily(); render();
+  }).catch(() => {
+    $("#app").innerHTML = '<div class="card"><h2>The quest map didn\'t load</h2><p class="muted">content.json couldn\'t be fetched. Reload the page to try again.</p></div>';
+  });
+}
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start); else start();
+})();
+</script>
